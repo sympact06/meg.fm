@@ -65,5 +65,3 @@ export async function getUserVote(trackId: string, discordId: string) {
   );
   return vote?.vote || null;
 }
-
-// Additional helper functions for fetching stats can be added here.
