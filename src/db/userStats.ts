@@ -26,13 +26,26 @@ export async function getUserMostPlayedArtists(discordId: string, limit: number 
   return db.all(`
     SELECT 
       artistName,
-      COUNT(*) as playCount,
-      SUM(duration_ms) as totalTime,
-      MAX(timestamp) as lastPlayed
-    FROM listening_history
+      COUNT(*) as plays
+    FROM listening_history 
     WHERE discordId = ?
     GROUP BY artistName
-    ORDER BY playCount DESC
+    ORDER BY plays DESC
+    LIMIT ?
+  `, discordId, limit);
+}
+
+export async function getTopTracks(discordId: string, limit: number = 3) {
+  const db = await getDB();
+  return db.all(`
+    SELECT 
+      trackName,
+      artistName,
+      COUNT(*) as plays
+    FROM listening_history 
+    WHERE discordId = ?
+    GROUP BY trackId
+    ORDER BY plays DESC
     LIMIT ?
   `, discordId, limit);
 }
