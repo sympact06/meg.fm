@@ -15,7 +15,6 @@ export async function execute(context: CommandInteraction | Message, args?: stri
   const discordId = 'user' in context ? context.user.id : context.author.id;
   console.log('Command executed by:', discordId);
 
-  // Start tracking this user
   const trackingService = TrackingService.getInstance();
   trackingService.addUser(discordId);
   trackingService.startTracking();
@@ -32,7 +31,6 @@ export async function execute(context: CommandInteraction | Message, args?: stri
 
   let accessToken = tokens.access_token;
   const currentTime = Math.floor(Date.now() / 1000);
-  // Refresh token if expired
   if (tokens.expires_at < currentTime) {
     try {
       const newTokenData = await refreshAccessToken(tokens.refresh_token);
@@ -61,20 +59,16 @@ export async function execute(context: CommandInteraction | Message, args?: stri
         invoker: invokerId 
       });
       
-      // Get colors based on the track URL (now synchronous)
       const colors = extractColors(track.album.images[0].url);
       
-      // Check for special effects
       const artistEffect = specialEffects.artists[track.artists[0].name];
       const songEffect = specialEffects.songs[track.name];
       const effect = songEffect || artistEffect;
 
-      // Get initial vote counts
       const votes = await getTotalVotes(track.id);
       const userVote = await getUserVote(track.id, invokerId);
       console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
 
-      // Get artist image
       const artistImage = track.artists[0].images ? track.artists[0].images[0].url : track.album.images[2].url;
 
       const embed = new EmbedBuilder()
@@ -91,7 +85,6 @@ export async function execute(context: CommandInteraction | Message, args?: stri
           { name: 'Votes', value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, inline: true }
         );
 
-      // Create buttons with debug info
       console.log('Creating buttons with customId pattern:', `like/dislike_${track.id}_${invokerId}`);
       const row = createVoteButtons(track.id, invokerId, userVote);
 
@@ -144,7 +137,6 @@ export async function handleButton(interaction: ButtonInteraction) {
   const votes = await getTotalVotes(trackId);
   console.log('Updated vote counts:', { trackId, ...votes });
 
-  // Update embed using interaction.message directly
   const embed = EmbedBuilder.from(interaction.message.embeds[0])
     .spliceFields(2, 1, { 
       name: 'Votes', 
@@ -152,7 +144,6 @@ export async function handleButton(interaction: ButtonInteraction) {
       inline: true 
     });
 
-  // Update button styles
   const row = new ActionRowBuilder<ButtonBuilder>()
     .addComponents(
       new ButtonBuilder()

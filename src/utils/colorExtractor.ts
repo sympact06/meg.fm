@@ -4,7 +4,6 @@ type ColorScheme = {
   text: string;
 };
 
-// Predefined color schemes that work well together
 const colorSchemes: ColorScheme[] = [
   {
     primary: '#1DB954',    // Spotify green
