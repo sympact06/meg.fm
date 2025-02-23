@@ -62,7 +62,7 @@ initDB().then(() => console.log('Database initialized'));
 
 // Start Express server for Spotify OAuth
 const app = express();
-const port = 8888;
+const port = process.env.PORT || 8888;
 
 loginRoute(app);
 callbackRoute(app);
