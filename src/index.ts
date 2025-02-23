@@ -30,6 +30,12 @@ for (const file of commandFiles) {
   commandsData.push(command.data.toJSON());
 }
 
+commandsData.forEach(command => {
+  if (typeof command.dm_permission === 'undefined') {
+    command.dm_permission = true;
+  }
+});
+
 if (!process.env.DISCORD_TOKEN) {
   throw new Error('DISCORD_TOKEN is not defined in the environment variables');
 }
