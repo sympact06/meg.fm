@@ -3,14 +3,22 @@ import { open, Database } from 'sqlite';
 
 let db: Database | null = null;
 
-export async function initDB() {
-  db = await open({
-    filename: './data.sqlite',
-    driver: sqlite3.Database
-  });
-  
-  // Existing tables
-  await db.run(`
+export const initDB = getDB;  
+
+export async function getDB(): Promise<Database> {
+  if (!db) {
+    db = await open({
+      filename: './data.sqlite',
+      driver: sqlite3.Database
+    });
+    
+    await initTables();
+  }
+  return db;
+}
+
+async function initTables() {
+  await db!.run(`
     CREATE TABLE IF NOT EXISTS spotify_tokens (
       discordId TEXT PRIMARY KEY,
       access_token TEXT NOT NULL,
@@ -19,8 +27,7 @@ export async function initDB() {
     )
   `);
 
-  // New tables for tracking
-  await db.run(`
+  await db!.run(`
     CREATE TABLE IF NOT EXISTS listening_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       discordId TEXT NOT NULL,
@@ -34,7 +41,7 @@ export async function initDB() {
     )
   `);
 
-  await db.run(`
+  await db!.run(`
     CREATE TABLE IF NOT EXISTS user_statistics (
       discordId TEXT PRIMARY KEY,
       total_tracks_played INTEGER DEFAULT 0,
@@ -47,13 +54,13 @@ export async function initDB() {
 }
 
 export async function getTokens(discordId: string) {
-  if (!db) await initDB();
-  return db!.get('SELECT * FROM spotify_tokens WHERE discordId = ?', discordId);
+  const db = await getDB();
+  return db.get('SELECT * FROM spotify_tokens WHERE discordId = ?', discordId);
 }
 
 export async function setTokens(discordId: string, access_token: string, refresh_token: string, expires_at: number) {
-  if (!db) await initDB();
-  await db!.run(
+  const db = await getDB();
+  await db.run(
     'INSERT OR REPLACE INTO spotify_tokens (discordId, access_token, refresh_token, expires_at) VALUES (?, ?, ?, ?)',
     discordId,
     access_token,
@@ -63,8 +70,8 @@ export async function setTokens(discordId: string, access_token: string, refresh
 }
 
 export async function updateAccessToken(discordId: string, access_token: string, expires_at: number) {
-  if (!db) await initDB();
-  await db!.run(
+  const db = await getDB();
+  await db.run(
     'UPDATE spotify_tokens SET access_token = ?, expires_at = ? WHERE discordId = ?',
     access_token,
     expires_at,
@@ -72,10 +79,9 @@ export async function updateAccessToken(discordId: string, access_token: string,
   );
 }
 
-// Add new functions for tracking
 export async function getLastTrackedSong(discordId: string) {
-  if (!db) await initDB();
-  return db!.get(
+  const db = await getDB();
+  return db.get(
     `SELECT trackId, timestamp FROM listening_history 
      WHERE discordId = ? 
      ORDER BY timestamp DESC LIMIT 1`,
@@ -84,15 +90,13 @@ export async function getLastTrackedSong(discordId: string) {
 }
 
 export async function recordListening(discordId: string, track: any) {
-  if (!db) await initDB();
+  const db = await getDB();
   
   const timestamp = Math.floor(Date.now() / 1000);
   
   try {
-    // Get the last tracked song for this user
     const lastTrack = await getLastTrackedSong(discordId);
     
-    // Skip if it's the same song and within its duration
     if (lastTrack && lastTrack.trackId === track.id) {
       const timeSinceLastTrack = timestamp - lastTrack.timestamp;
       if (timeSinceLastTrack < Math.ceil(track.duration_ms / 1000)) {
@@ -101,8 +105,7 @@ export async function recordListening(discordId: string, track: any) {
       }
     }
 
-    // If it's a different song or enough time has passed, record it
-    await db!.run(
+    await db.run(
       `INSERT INTO listening_history 
        (discordId, trackId, trackName, artistName, albumName, timestamp, duration_ms)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -124,17 +127,16 @@ export async function recordListening(discordId: string, track: any) {
 }
 
 async function updateUserStats(discordId: string, track: any) {
-  // Get current play count for this track
-  const playCount = await db!.get(
+  const db = await getDB();
+  const playCount = await db.get(
     `SELECT COUNT(*) as count FROM listening_history 
      WHERE discordId = ? AND trackId = ?`,
     discordId,
     track.id
   );
 
-  // Update stats only if this is the first play of the track
   if (playCount.count === 1) {
-    await db!.run(`
+    await db.run(`
       INSERT OR REPLACE INTO user_statistics (
         discordId,
         total_tracks_played,
@@ -175,6 +177,6 @@ async function updateUserStats(discordId: string, track: any) {
 }
 
 export async function getAllAuthorizedUsers() {
-  if (!db) await initDB();
-  return db!.all('SELECT discordId FROM spotify_tokens');
+  const db = await getDB();
+  return db.all('SELECT discordId FROM spotify_tokens');
 }

@@ -20,7 +20,6 @@ const client = new Client({
 }) as any;
 client.commands = new Collection();
 
-// Load commands
 const commandsPath = join(__dirname, 'commands');
 const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.ts'));
 const commandsData: any[] = [];
@@ -31,7 +30,6 @@ for (const file of commandFiles) {
   commandsData.push(command.data.toJSON());
 }
 
-// Register slash commands globally
 if (!process.env.DISCORD_TOKEN) {
   throw new Error('DISCORD_TOKEN is not defined in the environment variables');
 }
@@ -44,7 +42,6 @@ rest.put(
   .then(() => console.log('Successfully registered application (slash) commands.'))
   .catch(console.error);
 
-// Load events
 const eventsPath = join(__dirname, 'events');
 const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.ts'));
 for (const file of eventFiles) {
@@ -58,17 +55,14 @@ for (const file of eventFiles) {
 
 client.once('ready', async () => {
   console.log('Bot is ready!');
-  // Initialize tracking service with all authorized users
   const trackingService = TrackingService.getInstance();
   await trackingService.initializeFromDatabase();
 });
 
 client.login(process.env.DISCORD_TOKEN);
 
-// Initialize database
 initDB().then(() => console.log('Database initialized'));
 
-// Start Express server for Spotify OAuth
 const app = express();
 const port = process.env.PORT || 8888;
 
