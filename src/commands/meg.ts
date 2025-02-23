@@ -74,21 +74,21 @@ export async function execute(context: CommandInteraction | Message, args?: stri
       const userVote = await getUserVote(track.id, invokerId);
       console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
 
+      // Get artist image
+      const artistImage = track.artists[0].images ? track.artists[0].images[0].url : track.album.images[2].url;
+
       const embed = new EmbedBuilder()
         .setColor(effect?.color ? effect.color : colors.primary)
         .setTitle(applyEffect(track.name, effect?.effect))
         .setURL(track.external_urls.spotify)
         .setAuthor({ 
           name: track.artists.map((artist: any) => artist.name).join(', '),
-          iconURL: track.album.images[2].url
         })
-        .setThumbnail(track.album.images[0].url)
+        .setThumbnail(artistImage)
         .addFields(
           { name: 'Album', value: track.album.name, inline: true },
           { name: 'Duration', value: formatDuration(track.duration_ms), inline: true },
-          { name: 'Popularity', value: `${track.popularity}%`, inline: true },
-          { name: '👍 Likes', value: votes.likes.toString(), inline: true },
-          { name: '👎 Dislikes', value: votes.dislikes.toString(), inline: true }
+          { name: 'Votes', value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, inline: true }
         );
 
       // Create buttons with debug info
@@ -146,14 +146,10 @@ export async function handleButton(interaction: ButtonInteraction) {
 
   // Update embed using interaction.message directly
   const embed = EmbedBuilder.from(interaction.message.embeds[0])
-    .spliceFields(3, 2, { 
-      name: '👍 Likes', 
-      value: votes.likes.toString(), 
+    .spliceFields(2, 1, { 
+      name: 'Votes', 
+      value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, 
       inline: true 
-    }, {
-      name: '👎 Dislikes',
-      value: votes.dislikes.toString(),
-      inline: true
     });
 
   // Update button styles
