@@ -3,6 +3,9 @@ import axios from 'axios';
 import { getTokens, updateAccessToken } from '../db/database';
 import { refreshAccessToken } from '../utils/spotifyUtils';
 import { recordReaction, getTotalReactions, getTotalVotes, getUserVote, recordVote } from '../db/reactions';
+import { extractColors } from '../utils/colorExtractor';
+import specialEffects from '../config/specialEffects.json';
+import { TrackingService } from '../services/trackingService';
 
 export const data = new SlashCommandBuilder()
   .setName('meg')
@@ -11,6 +14,11 @@ export const data = new SlashCommandBuilder()
 export async function execute(context: CommandInteraction | Message, args?: string[]) {
   const discordId = 'user' in context ? context.user.id : context.author.id;
   console.log('Command executed by:', discordId);
+
+  // Start tracking this user
+  const trackingService = TrackingService.getInstance();
+  trackingService.addUser(discordId);
+  trackingService.startTracking();
 
   const tokens = await getTokens(discordId);
   if (!tokens) {
@@ -53,36 +61,39 @@ export async function execute(context: CommandInteraction | Message, args?: stri
         invoker: invokerId 
       });
       
+      // Get colors based on the track URL (now synchronous)
+      const colors = extractColors(track.album.images[0].url);
+      
+      // Check for special effects
+      const artistEffect = specialEffects.artists[track.artists[0].name];
+      const songEffect = specialEffects.songs[track.name];
+      const effect = songEffect || artistEffect;
+
       // Get initial vote counts
       const votes = await getTotalVotes(track.id);
       const userVote = await getUserVote(track.id, invokerId);
       console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
 
       const embed = new EmbedBuilder()
-        .setColor(0x1DB954)
-        .setTitle(track.name)
+        .setColor(effect?.color ? effect.color : colors.primary)
+        .setTitle(applyEffect(track.name, effect?.effect))
         .setURL(track.external_urls.spotify)
-        .setAuthor({ name: track.artists.map((artist: any) => artist.name).join(', ') })
+        .setAuthor({ 
+          name: track.artists.map((artist: any) => artist.name).join(', '),
+          iconURL: track.album.images[2].url
+        })
         .setThumbnail(track.album.images[0].url)
         .addFields(
           { name: 'Album', value: track.album.name, inline: true },
           { name: 'Duration', value: formatDuration(track.duration_ms), inline: true },
-          { name: 'Votes', value: `👍 ${votes.likes} | 👎 ${votes.dislikes}`, inline: true }
+          { name: 'Popularity', value: `${track.popularity}%`, inline: true },
+          { name: '👍 Likes', value: votes.likes.toString(), inline: true },
+          { name: '👎 Dislikes', value: votes.dislikes.toString(), inline: true }
         );
 
       // Create buttons with debug info
       console.log('Creating buttons with customId pattern:', `like/dislike_${track.id}_${invokerId}`);
-      const row = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId(`like_${track.id}_${invokerId}`)
-            .setEmoji('👍')
-            .setStyle(userVote === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`dislike_${track.id}_${invokerId}`)
-            .setEmoji('👎')
-            .setStyle(userVote === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
-        );
+      const row = createVoteButtons(track.id, invokerId, userVote);
 
       const reply = await context.reply({ 
         embeds: [embed],
@@ -135,10 +146,14 @@ export async function handleButton(interaction: ButtonInteraction) {
 
   // Update embed using interaction.message directly
   const embed = EmbedBuilder.from(interaction.message.embeds[0])
-    .spliceFields(2, 1, { 
-      name: 'Votes', 
-      value: `👍 ${votes.likes} | 👎 ${votes.dislikes}`, 
+    .spliceFields(3, 2, { 
+      name: '👍 Likes', 
+      value: votes.likes.toString(), 
       inline: true 
+    }, {
+      name: '👎 Dislikes',
+      value: votes.dislikes.toString(),
+      inline: true
     });
 
   // Update button styles
@@ -166,4 +181,24 @@ function formatDuration(duration_ms: number): string {
   const minutes = Math.floor(duration_ms / 60000);
   const seconds = Math.floor((duration_ms % 60000) / 1000);
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function applyEffect(text: string, effectName?: string): string {
+  if (!effectName || !specialEffects.effects[effectName]) return text;
+  const effectTemplate = specialEffects.effects[effectName];
+  return effectTemplate.replace('%s', text);
+}
+
+function createVoteButtons(trackId: string, invokerId: string, userVote: string) {
+  return new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId(`like_${trackId}_${invokerId}`)
+        .setEmoji('👍')
+        .setStyle(userVote === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`dislike_${trackId}_${invokerId}`)
+        .setEmoji('👎')
+        .setStyle(userVote === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
+    );
 }

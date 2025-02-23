@@ -1,0 +1,31 @@
+{
+  "artists": {
+    "Coldplay": {
+      "effect": "sparkles",
+      "border": "⭐",
+      "color": "#FFD700"
+    },
+    "The Weeknd": {
+      "effect": "neon",
+      "border": "💫",
+      "color": "#FF0000"
+    },
+    "Taylor Swift": {
+      "effect": "sparkles",
+      "border": "⭐",
+      "color": "#FF1493"
+    }
+  },
+  "songs": {
+    "Blinding Lights": {
+      "effect": "wave",
+      "border": "🌊",
+      "color": "#00FFFF"
+    }
+  },
+  "effects": {
+    "sparkles": "✨ %s ✨",
+    "neon": "💠 %s 💠",
+    "wave": "〰️ %s 〰️"
+  }
+}

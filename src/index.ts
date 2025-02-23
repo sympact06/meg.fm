@@ -6,6 +6,7 @@ import { join } from 'path';
 import { loginRoute } from './auth/authorize';
 import { callbackRoute } from './auth/callback';
 import { initDB } from './db/database';
+import { TrackingService } from './services/trackingService';
 
 config();
 
@@ -54,6 +55,13 @@ for (const file of eventFiles) {
     client.on(event.name, (...args: any[]) => event.execute(...args, client));
   }
 }
+
+client.once('ready', async () => {
+  console.log('Bot is ready!');
+  // Initialize tracking service with all authorized users
+  const trackingService = TrackingService.getInstance();
+  await trackingService.initializeFromDatabase();
+});
 
 client.login(process.env.DISCORD_TOKEN);
 
