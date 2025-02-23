@@ -51,6 +51,17 @@ async function initTables() {
       favorite_track TEXT
     )
   `);
+
+  // Add achievements tracking table
+  await db!.run(`
+    CREATE TABLE IF NOT EXISTS user_achievements (
+      discordId TEXT,
+      achievement_id TEXT,
+      unlocked_at INTEGER,
+      progress INTEGER DEFAULT 0,
+      PRIMARY KEY (discordId, achievement_id)
+    )
+  `);
 }
 
 export async function getTokens(discordId: string) {
