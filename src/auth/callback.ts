@@ -37,7 +37,7 @@ export function callbackRoute(app: Express) {
 async function exchangeCodeForToken(code: string): Promise<any> {
   const client_id = process.env.SPOTIFY_CLIENT_ID!;
   const client_secret = process.env.SPOTIFY_CLIENT_SECRET!;
-  const redirect_uri = process.env.REDIRECT_URI!;
+  const redirect_uri = process.env.SPOTIFY_REDIRECT_URI!;
 
   const response = await axios.post(
     'https://accounts.spotify.com/api/token',
