@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, REST, Routes, ActivityType } from 'discord.js';
 import { config } from 'dotenv';
 import express from 'express';
 import { readdirSync } from 'fs';
@@ -125,6 +125,10 @@ async function main(): Promise<void> {
 
     client.once('ready', async () => {
       console.log('Bot is ready!');
+      client.user.setPresence({
+        status: 'idle',
+        activities: [{ name: '❤️', type: ActivityType.Custom }],
+      });
       const spotifyService = SpotifyService.getInstance({
         clientId: process.env.SPOTIFY_CLIENT_ID!,
         clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
