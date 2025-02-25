@@ -1,15 +1,30 @@
-import { SlashCommandBuilder, CommandInteraction, EmbedBuilder, Message, TextChannel, ActionRowBuilder, ButtonBuilder, ButtonStyle, ButtonInteraction } from 'discord.js';
+import { SlashCommandBuilder, CommandInteraction, EmbedBuilder, Message, ActionRowBuilder, ButtonBuilder, ButtonStyle, ButtonInteraction, ColorResolvable } from 'discord.js';
 import axios from 'axios';
 import { getTokens, updateAccessToken } from '../db/database';
 import { refreshAccessToken } from '../utils/spotifyUtils';
-import { recordReaction, getTotalReactions, getTotalVotes, getUserVote, recordVote } from '../db/reactions';
+import { getTotalVotes, getUserVote, recordVote } from '../db/reactions';
 import { extractColors } from '../utils/colorExtractor';
 import specialEffects from '../config/specialEffects.json';
 import { TrackingService } from '../services/trackingService';
 
+type SpecialEffect = {
+  effect: string;
+  border: string;
+  color: ColorResolvable;
+};
+
+type SpecialEffects = {
+  artists: { [key: string]: SpecialEffect };
+  songs: { [key: string]: SpecialEffect };
+  effects: { [key: string]: string };
+};
+
+const typedSpecialEffects = specialEffects as SpecialEffects;
+
 export const data = new SlashCommandBuilder()
   .setName('meg')
-  .setDescription('Displays your currently playing Spotify track');
+  .setDescription('Displays your currently playing Spotify track')
+  .setDMPermission(true);
 
 export async function execute(context: CommandInteraction | Message, args?: string[]) {
   const discordId = 'user' in context ? context.user.id : context.author.id;
@@ -39,43 +54,47 @@ export async function execute(context: CommandInteraction | Message, args?: stri
       await updateAccessToken(discordId, accessToken, newExpiresAt);
     } catch (error) {
       console.error('Error refreshing token:', error);
-      await context.reply('Error refreshing your Spotify token. Please re-authorize with `/authorize` or `.authorize`.');
+      await context.reply(
+        'Error refreshing your Spotify token. Please re-authorize with `/authorize` or `.authorize`.'
+      );
       return;
     }
   }
 
   try {
     const response = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     if (response.data && response.data.item) {
       const track = response.data.item;
       const invokerId = context instanceof CommandInteraction ? context.user.id : context.author.id;
-      console.log('Track info:', { 
-        id: track.id, 
-        name: track.name, 
+      console.log('Track info:', {
+        id: track.id,
+        name: track.name,
         artist: track.artists[0].name,
-        invoker: invokerId 
+        invoker: invokerId,
       });
-      
+
       const colors = extractColors(track.album.images[0].url);
-      
-      const artistEffect = specialEffects.artists[track.artists[0].name];
-      const songEffect = specialEffects.songs[track.name];
+
+      const artistEffect = typedSpecialEffects.artists[track.artists[0].name];
+      const songEffect = typedSpecialEffects.songs[track.name];
       const effect = songEffect || artistEffect;
 
       const votes = await getTotalVotes(track.id);
       const userVote = await getUserVote(track.id, invokerId);
       console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
 
-      const artistImage = track.artists[0].images ? track.artists[0].images[0].url : track.album.images[2].url;
+      const artistImage = track.artists[0].images
+        ? track.artists[0].images[0].url
+        : track.album.images[2].url;
 
       const embed = new EmbedBuilder()
         .setColor(effect?.color ? effect.color : colors.primary)
         .setTitle(applyEffect(track.name, effect?.effect))
         .setURL(track.external_urls.spotify)
-        .setAuthor({ 
+        .setAuthor({
           name: track.artists.map((artist: any) => artist.name).join(', '),
         })
         .setThumbnail(artistImage)
@@ -85,13 +104,16 @@ export async function execute(context: CommandInteraction | Message, args?: stri
           { name: 'Votes', value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, inline: true }
         );
 
-      console.log('Creating buttons with customId pattern:', `like/dislike_${track.id}_${invokerId}`);
+      console.log(
+        'Creating buttons with customId pattern:',
+        `like/dislike_${track.id}_${invokerId}`
+      );
       const row = createVoteButtons(track.id, invokerId, userVote);
 
-      const reply = await context.reply({ 
+      const reply = await context.reply({
         embeds: [embed],
         components: [row],
-        fetchReply: true
+        fetchReply: true,
       });
       console.log('Reply sent:', { messageId: reply.id });
     } else {
@@ -107,7 +129,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   console.log('Button interaction received:', {
     customId: interaction.customId,
     userId: interaction.user.id,
-    messageId: interaction.message.id
+    messageId: interaction.message.id,
   });
 
   const [action, trackId, trackOwnerId] = interaction.customId.split('_');
@@ -116,9 +138,9 @@ export async function handleButton(interaction: ButtonInteraction) {
   const userId = interaction.user.id;
   if (trackOwnerId === userId) {
     console.log('Self-vote attempted:', { userId, trackId });
-    await interaction.reply({ 
+    await interaction.reply({
       content: 'You cannot vote on your own track!',
-      ephemeral: true 
+      ephemeral: true,
     });
     return;
   }
@@ -129,7 +151,7 @@ export async function handleButton(interaction: ButtonInteraction) {
     console.log('Failed to record vote');
     await interaction.reply({
       content: 'Failed to record your vote. Please try again.',
-      ephemeral: true
+      ephemeral: true,
     });
     return;
   }
@@ -137,29 +159,27 @@ export async function handleButton(interaction: ButtonInteraction) {
   const votes = await getTotalVotes(trackId);
   console.log('Updated vote counts:', { trackId, ...votes });
 
-  const embed = EmbedBuilder.from(interaction.message.embeds[0])
-    .spliceFields(2, 1, { 
-      name: 'Votes', 
-      value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, 
-      inline: true 
-    });
+  const embed = EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, {
+    name: 'Votes',
+    value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`,
+    inline: true,
+  });
 
-  const row = new ActionRowBuilder<ButtonBuilder>()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId(`like_${trackId}_${trackOwnerId}`)
-        .setEmoji('👍')
-        .setStyle(action === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`dislike_${trackId}_${trackOwnerId}`)
-        .setEmoji('👎')
-        .setStyle(action === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
-    );
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`like_${trackId}_${trackOwnerId}`)
+      .setEmoji('👍')
+      .setStyle(action === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`dislike_${trackId}_${trackOwnerId}`)
+      .setEmoji('👎')
+      .setStyle(action === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
+  );
 
   console.log('Updating message with new embed and buttons');
-  await interaction.update({ 
+  await interaction.update({
     embeds: [embed],
-    components: [row]
+    components: [row],
   });
   console.log('Update complete');
 }
@@ -171,21 +191,20 @@ function formatDuration(duration_ms: number): string {
 }
 
 function applyEffect(text: string, effectName?: string): string {
-  if (!effectName || !specialEffects.effects[effectName]) return text;
-  const effectTemplate = specialEffects.effects[effectName];
+  if (!effectName || !(effectName in typedSpecialEffects.effects)) return text;
+  const effectTemplate = typedSpecialEffects.effects[effectName];
   return effectTemplate.replace('%s', text);
 }
 
 function createVoteButtons(trackId: string, invokerId: string, userVote: string) {
-  return new ActionRowBuilder<ButtonBuilder>()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId(`like_${trackId}_${invokerId}`)
-        .setEmoji('👍')
-        .setStyle(userVote === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`dislike_${trackId}_${invokerId}`)
-        .setEmoji('👎')
-        .setStyle(userVote === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
-    );
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`like_${trackId}_${invokerId}`)
+      .setEmoji('👍')
+      .setStyle(userVote === 'like' ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`dislike_${trackId}_${invokerId}`)
+      .setEmoji('👎')
+      .setStyle(userVote === 'dislike' ? ButtonStyle.Danger : ButtonStyle.Secondary)
+  );
 }
