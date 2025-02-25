@@ -1,17 +1,25 @@
-import { getTokens, updateAccessToken, recordListening, getAllAuthorizedUsers } from '../db/database';
-import { refreshAccessToken } from '../utils/spotifyUtils';
-import axios from 'axios';
+import {
+  getTokens,
+  updateAccessToken,
+  recordListening,
+  getAllAuthorizedUsers,
+} from '../db/database';
+import { SpotifyService } from './streaming/SpotifyService';
+import { Track } from './streaming/BaseStreamingService';
 
 export class TrackingService {
   private static instance: TrackingService;
   private trackingInterval: NodeJS.Timeout | null = null;
-  private activeUsers: Set<string> = new Set();
+  private activeUsers: Map<string, { lastCheck: number; lastTrackId?: string }> = new Map();
+  private rateLimitedUsers: Set<string> = new Set();
+  private readonly CHECK_INTERVAL = 45000; // 45 seconds
+  private readonly RATE_LIMIT_RESET = 300000; // 5 minutes
 
-  private constructor() {}
+  private constructor(private streamingService: SpotifyService) {}
 
-  static getInstance(): TrackingService {
+  static getInstance(streamingService: SpotifyService): TrackingService {
     if (!TrackingService.instance) {
-      TrackingService.instance = new TrackingService();
+      TrackingService.instance = new TrackingService(streamingService);
     }
     return TrackingService.instance;
   }
@@ -19,65 +27,92 @@ export class TrackingService {
   async initializeFromDatabase() {
     try {
       const users = await getAllAuthorizedUsers();
-      users.forEach(user => {
-        this.activeUsers.add(user.discordId);
+      const now = Date.now();
+      users.forEach((user) => {
+        this.activeUsers.set(user.discordId, { lastCheck: now });
       });
       console.log(`[Tracking] Loaded ${this.activeUsers.size} users from database`);
-      this.startTracking();
+      await this.startTracking();
     } catch (error) {
       console.error('[Tracking] Error loading users from database:', error);
     }
   }
 
   addUser(discordId: string) {
-    this.activeUsers.add(discordId);
-    console.log(`[Tracking] Added user ${discordId} to tracking. Total users: ${this.activeUsers.size}`);
+    this.activeUsers.set(discordId, { lastCheck: Date.now() });
+    console.log(
+      `[Tracking] Added user ${discordId} to tracking. Total users: ${this.activeUsers.size}`
+    );
   }
 
-  startTracking() {
-    if (this.trackingInterval) return;
+  private async trackUser(
+    discordId: string,
+    userData: { lastCheck: number; lastTrackId?: string }
+  ) {
+    if (this.rateLimitedUsers.has(discordId)) {
+      return;
+    }
+
+    try {
+      const tokens = await getTokens(discordId);
+      if (!tokens) return;
+
+      let { accessToken, refreshToken, expiresAt } = tokens;
+
+      if (Date.now() >= expiresAt) {
+        const refreshed = await this.streamingService.refreshToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        const newExpiresAt = Date.now() + refreshed.expiresIn * 1000;
+        await updateAccessToken(discordId, accessToken, newExpiresAt);
+      }
+
+      const track = await this.streamingService.getCurrentTrack(discordId, accessToken);
+
+      if (track && track.progress > 2000 && track.id !== userData.lastTrackId) {
+        await this.recordTrack(discordId, track);
+        userData.lastTrackId = track.id;
+      }
+
+      userData.lastCheck = Date.now();
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Rate limit exceeded') {
+        this.rateLimitedUsers.add(discordId);
+        setTimeout(() => this.rateLimitedUsers.delete(discordId), this.RATE_LIMIT_RESET);
+      }
+      console.error(`[Tracking] Error tracking user ${discordId}:`, error);
+    }
+  }
+
+  private async recordTrack(discordId: string, track: Track) {
+    try {
+      const recorded = await recordListening(discordId, {
+        id: track.id,
+        name: track.name,
+        artists: [{ name: track.artist }],
+        album: { name: track.album },
+      });
+      if (recorded) {
+        console.log(
+          `[Tracking] New record: User ${discordId} listening to "${track.name}" by ${track.artist}`
+        );
+      }
+    } catch (error) {
+      console.error(`[Tracking] Error recording track for user ${discordId}:`, error);
+    }
+  }
+
+  async startTracking() {
+    if (this.trackingInterval) {
+      return;
+    }
 
     this.trackingInterval = setInterval(async () => {
-      console.log(`[Tracking] Checking ${this.activeUsers.size} users...`);
-      
-      for (const discordId of this.activeUsers) {
-        try {
-          const tokens = await getTokens(discordId);
-          if (!tokens) {
-            this.activeUsers.delete(discordId);
-            continue;
-          }
+      const trackingPromises = Array.from(this.activeUsers.entries()).map(([discordId, userData]) =>
+        this.trackUser(discordId, userData)
+      );
 
-          let accessToken = tokens.access_token;
-          const currentTime = Math.floor(Date.now() / 1000);
-
-          if (tokens.expires_at < currentTime) {
-            const newTokenData = await refreshAccessToken(tokens.refresh_token);
-            accessToken = newTokenData.access_token;
-            const newExpiresAt = currentTime + newTokenData.expires_in;
-            await updateAccessToken(discordId, accessToken, newExpiresAt);
-          }
-
-          const response = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-          });
-
-          if (response.data && response.data.item) {
-            const track = response.data.item;
-            const progress = response.data.progress_ms;
-            
-            if (progress > 2000) { // Only track if more than 2 seconds into the song
-              const recorded = await recordListening(discordId, track);
-              if (recorded) {
-                console.log(`[Tracking] New record: User ${discordId} listening to "${track.name}" by ${track.artists[0].name}`);
-              }
-            }
-          }
-        } catch (error) {
-          console.error(`[Tracking] Error tracking user ${discordId}:`, error);
-        }
-      }
-    }, 45000); 
+      await Promise.allSettled(trackingPromises);
+    }, this.CHECK_INTERVAL);
 
     console.log('[Tracking] Started tracking service');
   }
