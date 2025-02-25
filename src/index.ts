@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, REST, Routes, Message } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 import express from 'express';
 import { readdirSync } from 'fs';
@@ -30,11 +30,15 @@ for (const file of commandFiles) {
   commandsData.push(command.data.toJSON());
 }
 
-if (!process.env.DISCORD_TOKEN) {
-  throw new Error('DISCORD_TOKEN is not defined in the environment variables');
+const requiredEnvVars = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET', 'SPOTIFY_REDIRECT_URI'];
+
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    throw new Error(`Required ${envVar} is not defined in the environment variables`);
+  }
 }
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
 rest.put(
   Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
   { body: commandsData }
@@ -64,7 +68,7 @@ client.login(process.env.DISCORD_TOKEN);
 initDB().then(() => console.log('Database initialized'));
 
 const app = express();
-const port = process.env.PORT || 8888;
+const port = process.env.PORT ?? 8888;
 
 loginRoute(app);
 callbackRoute(app);

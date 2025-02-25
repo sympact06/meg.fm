@@ -5,7 +5,7 @@ const oauthStates = new Map<string, string>(); // state: discordId
 
 export function loginRoute(app: Express) {
   const client_id = process.env.SPOTIFY_CLIENT_ID!;
-  const redirect_uri = process.env.REDIRECT_URI!;
+  const redirect_uri = process.env.SPOTIFY_REDIRECT_URI!;
   const scope = 'user-read-playback-state user-read-currently-playing';
 
   app.get('/login', (req: Request, res: Response) => {
