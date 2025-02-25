@@ -1,67 +1,43 @@
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
+import { migrateUp } from './migrations/migrationManager';
+import path from 'path';
+import { mkdirSync, existsSync } from 'fs';
 
 let db: Database | null = null;
 
-export const initDB = getDB;  
+export const initDB = getDB;
 
 export async function getDB(): Promise<Database> {
   if (!db) {
-    db = await open({
-      filename: './data.sqlite',
-      driver: sqlite3.Database
-    });
-    
-    await initTables();
+    const dbPath = process.env.DATABASE_PATH || './data.sqlite';
+    const dbDir = path.dirname(dbPath);
+
+    // Ensure the database directory exists
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+    }
+
+    try {
+      db = await open({
+        filename: dbPath,
+        driver: sqlite3.Database,
+      });
+
+      // Enable foreign keys and WAL mode for better performance and data integrity
+      await db.exec('PRAGMA foreign_keys = ON');
+      await db.exec('PRAGMA journal_mode = WAL');
+
+      // Run migrations
+      await migrateUp(db);
+
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw new Error('Database initialization failed');
+    }
   }
   return db;
-}
-
-async function initTables() {
-  await db!.run(`
-    CREATE TABLE IF NOT EXISTS spotify_tokens (
-      discordId TEXT PRIMARY KEY,
-      access_token TEXT NOT NULL,
-      refresh_token TEXT NOT NULL,
-      expires_at INTEGER NOT NULL
-    )
-  `);
-
-  await db!.run(`
-    CREATE TABLE IF NOT EXISTS listening_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      discordId TEXT NOT NULL,
-      trackId TEXT NOT NULL,
-      trackName TEXT NOT NULL,
-      artistName TEXT NOT NULL,
-      albumName TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      duration_ms INTEGER NOT NULL,
-      UNIQUE(discordId, trackId, timestamp)
-    )
-  `);
-
-  await db!.run(`
-    CREATE TABLE IF NOT EXISTS user_statistics (
-      discordId TEXT PRIMARY KEY,
-      total_tracks_played INTEGER DEFAULT 0,
-      total_listening_time_ms INTEGER DEFAULT 0,
-      last_checked INTEGER DEFAULT 0,
-      favorite_artist TEXT,
-      favorite_track TEXT
-    )
-  `);
-
-  // Add achievements tracking table
-  await db!.run(`
-    CREATE TABLE IF NOT EXISTS user_achievements (
-      discordId TEXT,
-      achievement_id TEXT,
-      unlocked_at INTEGER,
-      progress INTEGER DEFAULT 0,
-      PRIMARY KEY (discordId, achievement_id)
-    )
-  `);
 }
 
 export async function getTokens(discordId: string) {
@@ -69,7 +45,12 @@ export async function getTokens(discordId: string) {
   return db.get('SELECT * FROM spotify_tokens WHERE discordId = ?', discordId);
 }
 
-export async function setTokens(discordId: string, access_token: string, refresh_token: string, expires_at: number) {
+export async function setTokens(
+  discordId: string,
+  access_token: string,
+  refresh_token: string,
+  expires_at: number
+) {
   const db = await getDB();
   await db.run(
     'INSERT OR REPLACE INTO spotify_tokens (discordId, access_token, refresh_token, expires_at) VALUES (?, ?, ?, ?)',
@@ -80,7 +61,11 @@ export async function setTokens(discordId: string, access_token: string, refresh
   );
 }
 
-export async function updateAccessToken(discordId: string, access_token: string, expires_at: number) {
+export async function updateAccessToken(
+  discordId: string,
+  access_token: string,
+  expires_at: number
+) {
   const db = await getDB();
   await db.run(
     'UPDATE spotify_tokens SET access_token = ?, expires_at = ? WHERE discordId = ?',
@@ -102,16 +87,18 @@ export async function getLastTrackedSong(discordId: string) {
 
 export async function recordListening(discordId: string, track: any) {
   const db = await getDB();
-  
+
   const timestamp = Math.floor(Date.now() / 1000);
-  
+
   try {
     const lastTrack = await getLastTrackedSong(discordId);
-    
+
     if (lastTrack && lastTrack.trackId === track.id) {
       const timeSinceLastTrack = timestamp - lastTrack.timestamp;
       if (timeSinceLastTrack < Math.ceil(track.duration_ms / 1000)) {
-        console.log(`[Tracking] Skipping duplicate track ${track.name} - still playing (${timeSinceLastTrack}s since last record)`);
+        console.log(
+          `[Tracking] Skipping duplicate track ${track.name} - still playing (${timeSinceLastTrack}s since last record)`
+        );
         return false;
       }
     }
@@ -147,7 +134,8 @@ async function updateUserStats(discordId: string, track: any) {
   );
 
   if (playCount.count === 1) {
-    await db.run(`
+    await db.run(
+      `
       INSERT OR REPLACE INTO user_statistics (
         discordId,
         total_tracks_played,

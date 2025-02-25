@@ -5,7 +5,8 @@ import {
   getAllAuthorizedUsers,
 } from '../db/database';
 import { SpotifyService } from './streaming/SpotifyService';
-import { Track } from './streaming/BaseStreamingService';
+import { refreshAccessToken } from '../utils/spotifyUtils';
+import axios from 'axios';
 
 export class TrackingService {
   private static instance: TrackingService;
@@ -13,7 +14,6 @@ export class TrackingService {
   private activeUsers: Map<string, { lastCheck: number; lastTrackId?: string }> = new Map();
   private rateLimitedUsers: Set<string> = new Set();
   private readonly CHECK_INTERVAL = 45000; // 45 seconds
-  private readonly RATE_LIMIT_RESET = 300000; // 5 minutes
 
   private constructor(private streamingService: SpotifyService) {}
 
@@ -57,48 +57,65 @@ export class TrackingService {
       const tokens = await getTokens(discordId);
       if (!tokens) return;
 
-      let { accessToken, refreshToken, expiresAt } = tokens;
+      let {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+      } = tokens;
 
-      if (Date.now() >= expiresAt) {
+      if (Date.now() >= expiresAt * 1000) {
         const refreshed = await this.streamingService.refreshToken(refreshToken);
         accessToken = refreshed.accessToken;
-        const newExpiresAt = Date.now() + refreshed.expiresIn * 1000;
+        const newExpiresAt = Math.floor(Date.now() / 1000) + refreshed.expiresIn;
         await updateAccessToken(discordId, accessToken, newExpiresAt);
       }
 
-      const track = await this.streamingService.getCurrentTrack(discordId, accessToken);
+      const currentTrack = await this.streamingService.getCurrentTrack(accessToken);
 
-      if (track && track.progress > 2000 && track.id !== userData.lastTrackId) {
-        await this.recordTrack(discordId, track);
-        userData.lastTrackId = track.id;
-      }
+      if (currentTrack && currentTrack.progress > 2000) {
+        // Only track if more than 2 seconds into the song
+        const trackData = {
+          id: currentTrack.id,
+          name: currentTrack.name,
+          artists: [{ name: currentTrack.artist }],
+          album: { name: currentTrack.album },
+          duration_ms: currentTrack.duration,
+        };
 
-      userData.lastCheck = Date.now();
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Rate limit exceeded') {
-        this.rateLimitedUsers.add(discordId);
-        setTimeout(() => this.rateLimitedUsers.delete(discordId), this.RATE_LIMIT_RESET);
+        const recorded = await recordListening(discordId, trackData);
+        if (recorded) {
+          console.log(
+            `[Tracking] New record: User ${discordId} listening to "${currentTrack.name}" by ${currentTrack.artist}`
+          );
+        }
       }
-      console.error(`[Tracking] Error tracking user ${discordId}:`, error);
+    } catch (error: any) {
+      if (error.message === 'TOKEN_REFRESH_NEEDED') {
+        try {
+          const tokens = await getTokens(discordId);
+          if (!tokens) {
+            this.activeUsers.delete(discordId);
+            return;
+          }
+          const newTokenData = await refreshAccessToken(tokens.refresh_token);
+          const currentTime = Math.floor(Date.now() / 1000);
+          await updateAccessToken(
+            discordId,
+            newTokenData.access_token,
+            currentTime + newTokenData.expires_in
+          );
+          // Skip this iteration, will retry on next interval
+          return;
+        } catch (refreshError) {
+          console.error(`[Tracking] Error refreshing token for user ${discordId}:`, refreshError);
+          this.activeUsers.delete(discordId);
+        }
+      } else {
+        console.error(`[Tracking] Error tracking user ${discordId}:`, error);
+      }
     }
-  }
 
-  private async recordTrack(discordId: string, track: Track) {
-    try {
-      const recorded = await recordListening(discordId, {
-        id: track.id,
-        name: track.name,
-        artists: [{ name: track.artist }],
-        album: { name: track.album },
-      });
-      if (recorded) {
-        console.log(
-          `[Tracking] New record: User ${discordId} listening to "${track.name}" by ${track.artist}`
-        );
-      }
-    } catch (error) {
-      console.error(`[Tracking] Error recording track for user ${discordId}:`, error);
-    }
+    userData.lastCheck = Date.now();
   }
 
   async startTracking() {

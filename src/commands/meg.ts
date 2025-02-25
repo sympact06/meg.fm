@@ -1,4 +1,14 @@
-import { SlashCommandBuilder, CommandInteraction, EmbedBuilder, Message, ActionRowBuilder, ButtonBuilder, ButtonStyle, ButtonInteraction, ColorResolvable } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  CommandInteraction,
+  EmbedBuilder,
+  Message,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ButtonInteraction,
+  ColorResolvable,
+} from 'discord.js';
 import axios from 'axios';
 import { getTokens, updateAccessToken } from '../db/database';
 import { refreshAccessToken } from '../utils/spotifyUtils';

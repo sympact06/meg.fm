@@ -4,41 +4,36 @@ import tseslintParser from '@typescript-eslint/parser';
 import prettierConfig from 'eslint-config-prettier';
 
 export default [
-  eslint.configs.recommended,
   {
-    ignores: ['dist/**', 'node_modules/**'],
-    files: ['**/*.ts'],
-    languageOptions: {
-      ecmaVersion: 2022,
+    extends: [
+      'eslint:recommended',
+      'plugin:@typescript-eslint/recommended',
+      'plugin:@typescript-eslint/recommended-requiring-type-checking',
+    ],
+    parser: '@typescript-eslint/parser',
+    plugins: ['@typescript-eslint'],
+    root: true,
+    parserOptions: {
+      project: './tsconfig.json',
+      ecmaVersion: 'latest',
       sourceType: 'module',
-      parser: tseslintParser,
-      parserOptions: {
-        project: './tsconfig.json',
-      },
-      globals: {
-        Bun: 'readonly',
-        process: 'readonly',
-        __dirname: 'readonly',
-        require: 'readonly',
-        console: 'readonly',
-        Buffer: 'readonly',
-        URLSearchParams: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        NodeJS: 'readonly',
-      },
-    },
-    plugins: {
-      '@typescript-eslint': tseslint,
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/explicit-function-return-type': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
-      'no-case-declarations': 'warn',
-      'no-undef': 'error',
-      'no-unused-vars': 'off', // Using TypeScript's version instead
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/require-await': 'error',
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-debugger': 'error',
+      'no-duplicate-imports': 'error',
+      'no-unused-private-class-members': 'error',
+      'prefer-const': 'error',
+      eqeqeq: ['error', 'always'],
     },
+    ignorePatterns: ['dist/**/*'],
   },
   prettierConfig,
 ];

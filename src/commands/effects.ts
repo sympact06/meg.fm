@@ -8,32 +8,24 @@ import { predefinedColors, ColorName } from '../config/colors';
 export const data = new SlashCommandBuilder()
   .setName('effects')
   .setDescription('Manage special effects for songs and artists')
-  .addSubcommand(subcommand =>
-    subcommand
-      .setName('list')
-      .setDescription('List all available effects')
+  .addSubcommand((subcommand) =>
+    subcommand.setName('list').setDescription('List all available effects')
   )
-  .addSubcommand(subcommand =>
+  .addSubcommand((subcommand) =>
     subcommand
       .setName('add')
       .setDescription('Add a special effect')
-      .addStringOption(option =>
+      .addStringOption((option) =>
         option
           .setName('type')
           .setDescription('Type of target')
           .setRequired(true)
-          .addChoices(
-            { name: 'Artist', value: 'artist' },
-            { name: 'Song', value: 'song' }
-          )
+          .addChoices({ name: 'Artist', value: 'artist' }, { name: 'Song', value: 'song' })
       )
-      .addStringOption(option =>
-        option
-          .setName('name')
-          .setDescription('Artist or song name')
-          .setRequired(true)
+      .addStringOption((option) =>
+        option.setName('name').setDescription('Artist or song name').setRequired(true)
       )
-      .addStringOption(option =>
+      .addStringOption((option) =>
         option
           .setName('effect')
           .setDescription('Effect to apply')
@@ -44,7 +36,7 @@ export const data = new SlashCommandBuilder()
             { name: '🌊 Wave', value: 'wave' }
           )
       )
-      .addStringOption(option => {
+      .addStringOption((option) => {
         const colorOption = option
           .setName('color')
           .setDescription('Choose a color')
@@ -58,25 +50,19 @@ export const data = new SlashCommandBuilder()
         return option;
       })
   )
-  .addSubcommand(subcommand =>
+  .addSubcommand((subcommand) =>
     subcommand
       .setName('remove')
       .setDescription('Remove a special effect')
-      .addStringOption(option =>
+      .addStringOption((option) =>
         option
           .setName('type')
           .setDescription('Type of target')
           .setRequired(true)
-          .addChoices(
-            { name: 'Artist', value: 'artist' },
-            { name: 'Song', value: 'song' }
-          )
+          .addChoices({ name: 'Artist', value: 'artist' }, { name: 'Song', value: 'song' })
       )
-      .addStringOption(option =>
-        option
-          .setName('name')
-          .setDescription('Artist or song name')
-          .setRequired(true)
+      .addStringOption((option) =>
+        option.setName('name').setDescription('Artist or song name').setRequired(true)
       )
   );
 
@@ -85,7 +71,7 @@ export async function execute(interaction: CommandInteraction) {
   if (!adminUsers.admins.includes(interaction.user.id)) {
     await interaction.reply({
       content: 'You do not have permission to use this command.',
-      ephemeral: true
+      ephemeral: true,
     });
     return;
   }
@@ -97,29 +83,31 @@ export async function execute(interaction: CommandInteraction) {
       .setTitle('Special Effects Configuration')
       .setColor('#1DB954')
       .addFields(
-        { 
-          name: 'Available Effects', 
+        {
+          name: 'Available Effects',
           value: Object.entries(specialEffects.effects)
             .map(([name, pattern]) => `${name}: ${pattern}`)
-            .join('\n')
+            .join('\n'),
         },
         {
           name: 'Available Colors',
           value: Object.entries(predefinedColors)
             .map(([name, hex]) => `${name}: ${hex}`)
-            .join('\n')
+            .join('\n'),
         },
         {
           name: 'Artists with Effects',
-          value: Object.entries(specialEffects.artists)
-            .map(([name, config]) => `${name}: ${config.effect} (${config.color})`)
-            .join('\n') || 'None'
+          value:
+            Object.entries(specialEffects.artists)
+              .map(([name, config]) => `${name}: ${config.effect} (${config.color})`)
+              .join('\n') || 'None',
         },
         {
           name: 'Songs with Effects',
-          value: Object.entries(specialEffects.songs)
-            .map(([name, config]) => `${name}: ${config.effect} (${config.color})`)
-            .join('\n') || 'None'
+          value:
+            Object.entries(specialEffects.songs)
+              .map(([name, config]) => `${name}: ${config.effect} (${config.color})`)
+              .join('\n') || 'None',
         }
       );
 
@@ -137,14 +125,14 @@ export async function execute(interaction: CommandInteraction) {
     target[name] = {
       effect,
       border: getBorderForEffect(effect),
-      color
+      color,
     };
 
     saveSpecialEffects();
 
     await interaction.reply({
       content: `Added ${effect} effect to ${type} "${name}" with color ${getColorName(color)}`,
-      ephemeral: true
+      ephemeral: true,
     });
     return;
   }
@@ -158,12 +146,12 @@ export async function execute(interaction: CommandInteraction) {
       saveSpecialEffects();
       await interaction.reply({
         content: `Removed effect from ${type} "${name}"`,
-        ephemeral: true
+        ephemeral: true,
       });
     } else {
       await interaction.reply({
         content: `No effect found for ${type} "${name}"`,
-        ephemeral: true
+        ephemeral: true,
       });
     }
   }
@@ -173,7 +161,7 @@ function getBorderForEffect(effect: string): string {
   const borders = {
     sparkles: '⭐',
     neon: '💫',
-    wave: '🌊'
+    wave: '🌊',
   };
   return borders[effect as keyof typeof borders] || '▬';
 }

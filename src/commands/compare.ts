@@ -5,13 +5,10 @@ import { getListeningBattle, findCommonArtists, compareListeningStats } from '..
 export const data = new SlashCommandBuilder()
   .setName('compare')
   .setDescription('Compare music taste with a friend')
-  .addUserOption(option => 
-    option
-      .setName('user')
-      .setDescription('User to compare with')
-      .setRequired(true)
+  .addUserOption((option) =>
+    option.setName('user').setDescription('User to compare with').setRequired(true)
   )
-  .addStringOption(option =>
+  .addStringOption((option) =>
     option
       .setName('type')
       .setDescription('What to compare')
@@ -32,7 +29,7 @@ export async function execute(interaction: CommandInteraction) {
   if (!friendship) {
     await interaction.reply({
       content: `You need to be friends with ${targetUser.username} to compare stats! Use /friend add first.`,
-      ephemeral: true
+      ephemeral: true,
     });
     return;
   }
@@ -47,20 +44,20 @@ export async function execute(interaction: CommandInteraction) {
         .addFields(
           {
             name: 'Common Artists',
-            value: stats.commonArtists.length ? 
-              stats.commonArtists.map(a => `• ${a.artistName}`).join('\n') :
-              'No common artists yet',
-            inline: false
+            value: stats.commonArtists.length
+              ? stats.commonArtists.map((a) => `• ${a.artistName}`).join('\n')
+              : 'No common artists yet',
+            inline: false,
           },
           {
             name: interaction.user.username,
             value: `${stats.stats1?.total_tracks_played || 0} tracks\n${Math.round((stats.stats1?.total_listening_time_ms || 0) / 3600000)}h total`,
-            inline: true
+            inline: true,
           },
           {
             name: targetUser.username,
             value: `${stats.stats2?.total_tracks_played || 0} tracks\n${Math.round((stats.stats2?.total_listening_time_ms || 0) / 3600000)}h total`,
-            inline: true
+            inline: true,
           }
         );
       await interaction.reply({ embeds: [overallEmbed] });
@@ -72,10 +69,10 @@ export async function execute(interaction: CommandInteraction) {
         .setColor('#1DB954')
         .setTitle(`Common Artists: ${interaction.user.username} & ${targetUser.username}`)
         .addFields(
-          commonArtists.map(artist => ({
+          commonArtists.map((artist) => ({
             name: artist.artistName,
             value: `${interaction.user.username}: ${artist.user1_tracks} tracks\n${targetUser.username}: ${artist.user2_tracks} tracks`,
-            inline: true
+            inline: true,
           }))
         );
       await interaction.reply({ embeds: [artistEmbed] });
@@ -91,17 +88,21 @@ export async function execute(interaction: CommandInteraction) {
           {
             name: `${interaction.user.username}'s Score: ${battle.battleScore.user1}`,
             value: getBattleStats(battle.overall.user1, battle.today[0]),
-            inline: true
+            inline: true,
           },
           {
             name: `${targetUser.username}'s Score: ${battle.battleScore.user2}`,
             value: getBattleStats(battle.overall.user2, battle.today[1]),
-            inline: true
+            inline: true,
           },
           {
             name: 'Battle Result',
-            value: getBattleResult(battle.battleScore, interaction.user.username, targetUser.username),
-            inline: false
+            value: getBattleResult(
+              battle.battleScore,
+              interaction.user.username,
+              targetUser.username
+            ),
+            inline: false,
           }
         );
       await interaction.reply({ embeds: [battleEmbed] });
@@ -118,7 +119,7 @@ Unique Artists Today: ${today?.artists_today || 0}`;
 function getBattleResult(scores: any, user1: string, user2: string): string {
   const diff = Math.abs(scores.user1 - scores.user2);
   const winner = scores.user1 > scores.user2 ? user1 : user2;
-  
+
   if (diff < 10) return "It's a close battle! 🤼";
   if (diff < 50) return `${winner} has the edge! 🏆`;
   return `${winner} dominates! 👑`;

@@ -130,3 +130,5 @@ dist
 .pnp.*
 *.zip
 data.sqlite
+data.sqlite-wal
+data.sqlite-shm
