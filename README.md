@@ -24,7 +24,7 @@ A self-hosted alternative to fmbot using Spotify integration for Discord music t
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/meg.fm.git
+git clone https://github.com/sympact06/meg.fm.git
 cd meg.fm
 ```
 
