@@ -4,21 +4,23 @@ import tseslintParser from '@typescript-eslint/parser';
 import prettierConfig from 'eslint-config-prettier';
 
 export default [
+  eslint.configs.recommended,
   {
-    extends: [
-      'eslint:recommended',
-      'plugin:@typescript-eslint/recommended',
-      'plugin:@typescript-eslint/recommended-requiring-type-checking',
-    ],
-    parser: '@typescript-eslint/parser',
-    plugins: ['@typescript-eslint'],
-    root: true,
-    parserOptions: {
-      project: './tsconfig.json',
-      ecmaVersion: 'latest',
-      sourceType: 'module',
+    files: ['**/*.ts'],
+    languageOptions: {
+      parser: tseslintParser,
+      parserOptions: {
+        project: './tsconfig.json',
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
     },
     rules: {
+      ...tseslint.configs['recommended'].rules,
+      ...tseslint.configs['recommended-requiring-type-checking'].rules,
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
@@ -33,7 +35,7 @@ export default [
       'prefer-const': 'error',
       eqeqeq: ['error', 'always'],
     },
-    ignorePatterns: ['dist/**/*'],
+    ignores: ['dist/**/*'],
   },
   prettierConfig,
 ];
