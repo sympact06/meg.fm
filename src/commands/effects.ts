@@ -8,6 +8,7 @@ import { predefinedColors, ColorName } from '../config/colors';
 export const data = new SlashCommandBuilder()
   .setName('effects')
   .setDescription('Manage special effects for songs and artists')
+  .setContexts([0, 1, 2]) // Guild, BotDM, PrivateChannel
   .addSubcommand((subcommand) =>
     subcommand.setName('list').setDescription('List all available effects')
   )

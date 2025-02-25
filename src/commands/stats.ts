@@ -1,34 +1,30 @@
 import { SlashCommandBuilder, CommandInteraction, EmbedBuilder } from 'discord.js';
 import { getFriendship } from '../db/friends';
 import { getDetailedArtistStats, getListeningTrends, getUserStats } from '../db/userStats';
-import { 
-  getAchievements, 
-  formatAchievements, 
-  getCategoryEmoji, 
+import {
+  getAchievements,
+  formatAchievements,
+  getCategoryEmoji,
   formatAchievement,
-  ACHIEVEMENTS  // Import ACHIEVEMENTS constant
+  ACHIEVEMENTS, // Import ACHIEVEMENTS constant
 } from '../utils/achievements';
 import { createProgressBar } from '../utils/formatters';
 
 export const data = new SlashCommandBuilder()
   .setName('stats')
   .setDescription('View detailed music statistics')
-  .addSubcommand(sub => 
-    sub.setName('artists')
+  .setContexts([0, 1, 2]) // Guild, BotDM, PrivateChannel
+  .addSubcommand((sub) =>
+    sub
+      .setName('artists')
       .setDescription('View detailed artist statistics')
-      .addUserOption(opt => 
-        opt.setName('user')
-           .setDescription('User to view stats for')
-           .setRequired(false)
+      .addUserOption((opt) =>
+        opt.setName('user').setDescription('User to view stats for').setRequired(false)
       )
   )
-  .addSubcommand(sub =>
-    sub.setName('trends')
-      .setDescription('View your listening trends')
-  )
-  .addSubcommand(sub =>
-    sub.setName('achievements')
-      .setDescription('View your music achievements')
+  .addSubcommand((sub) => sub.setName('trends').setDescription('View your listening trends'))
+  .addSubcommand((sub) =>
+    sub.setName('achievements').setDescription('View your music achievements')
   );
 
 export async function execute(interaction: CommandInteraction) {
@@ -38,9 +34,9 @@ export async function execute(interaction: CommandInteraction) {
   if (targetUser.id !== interaction.user.id) {
     const friendship = await getFriendship(interaction.user.id, targetUser.id);
     if (!friendship || friendship.status !== 'accepted') {
-      await interaction.reply({ 
+      await interaction.reply({
         content: `You need to be friends with ${targetUser.username} to view their stats! Use /friend add first.`,
-        flags: ['Ephemeral']
+        flags: ['Ephemeral'],
       });
       return;
     }
@@ -50,7 +46,7 @@ export async function execute(interaction: CommandInteraction) {
   if (!stats) {
     await interaction.reply({
       content: `No listening data found for ${targetUser.username}`,
-      flags: ['Ephemeral']
+      flags: ['Ephemeral'],
     });
     return;
   }
@@ -61,7 +57,7 @@ export async function execute(interaction: CommandInteraction) {
       if (!artistStats.length) {
         await interaction.reply({
           content: `${targetUser.username} hasn't listened to any music yet!`,
-          flags: ['Ephemeral']
+          flags: ['Ephemeral'],
         });
         return;
       }
@@ -72,10 +68,10 @@ export async function execute(interaction: CommandInteraction) {
         .setDescription('Most played artists in the last 30 days')
         .setThumbnail(targetUser.displayAvatarURL())
         .addFields(
-          artistStats.map(stat => ({
+          artistStats.map((stat) => ({
             name: stat.artistName,
             value: `🎵 ${stat.playCount} plays\n⏱️ ${Math.round(stat.totalTime / 3600000)}h total`,
-            inline: true
+            inline: true,
           }))
         );
       await interaction.reply({ embeds: [artistEmbed] });
@@ -87,7 +83,7 @@ export async function execute(interaction: CommandInteraction) {
       if (!trends.length) {
         await interaction.reply({
           content: `No recent listening activity found for ${targetUser.username}`,
-          flags: ['Ephemeral']
+          flags: ['Ephemeral'],
         });
         return;
       }
@@ -98,9 +94,10 @@ export async function execute(interaction: CommandInteraction) {
         .setThumbnail(targetUser.displayAvatarURL())
         .addFields({
           name: '📊 Last 30 Days',
-          value: trends.map(t => 
-            `${t.day}: ${t.plays} plays (${t.unique_artists} artists)`
-          ).join('\n').slice(0, 1024)
+          value: trends
+            .map((t) => `${t.day}: ${t.plays} plays (${t.unique_artists} artists)`)
+            .join('\n')
+            .slice(0, 1024),
         });
       await interaction.reply({ embeds: [trendEmbed] });
       break;
@@ -108,35 +105,40 @@ export async function execute(interaction: CommandInteraction) {
 
     case 'achievements': {
       const achievements = await getAchievements(targetUser.id);
-      const { categories, stats: achievementStats, level, inProgress } = formatAchievements(achievements, stats);
-      
+      const {
+        categories,
+        stats: achievementStats,
+        level,
+        inProgress,
+      } = formatAchievements(achievements, stats);
+
       const achievementsEmbed = new EmbedBuilder()
         .setColor('#1DB954')
         .setTitle(`${targetUser.username}'s Music Journey`)
         .setDescription(
           `🎭 **${level.title}** (Level ${level.level})\n` +
-          createProgressBar(level.currentXP, level.nextLevelXP, 20) + 
-          `\n${level.currentXP}/${level.nextLevelXP} XP\n\n` +
-          `🏆 **Achievement Progress**\n` +
-          `👑 Legendary: ${achievementStats.legendary}\n` +
-          `💫 Epic: ${achievementStats.epic}\n` +
-          `✨ Rare: ${achievementStats.rare}\n` +
-          `⭐ Common: ${achievementStats.common}\n` +
-          `Total: ${achievementStats.total}/${Object.values(ACHIEVEMENTS).flat().length}`
+            createProgressBar(level.currentXP, level.nextLevelXP, 20) +
+            `\n${level.currentXP}/${level.nextLevelXP} XP\n\n` +
+            `🏆 **Achievement Progress**\n` +
+            `👑 Legendary: ${achievementStats.legendary}\n` +
+            `💫 Epic: ${achievementStats.epic}\n` +
+            `✨ Rare: ${achievementStats.rare}\n` +
+            `⭐ Common: ${achievementStats.common}\n` +
+            `Total: ${achievementStats.total}/${Object.values(ACHIEVEMENTS).flat().length}`
         )
         .setThumbnail(targetUser.displayAvatarURL());
 
       // Add completed achievements by category
       Object.entries(categories).forEach(([category, items]) => {
-        const completedItems = items.filter(a => 
-          a.progress && a.progress.current >= a.progress.target
+        const completedItems = items.filter(
+          (a) => a.progress && a.progress.current >= a.progress.target
         );
-        
+
         if (completedItems.length > 0) {
           achievementsEmbed.addFields({
             name: `${getCategoryEmoji(category)} Completed`,
-            value: completedItems.map(a => formatAchievement(a)).join('\n\n'),
-            inline: false
+            value: completedItems.map((a) => formatAchievement(a)).join('\n\n'),
+            inline: false,
           });
         }
       });
@@ -145,8 +147,8 @@ export async function execute(interaction: CommandInteraction) {
       if (inProgress.length > 0) {
         achievementsEmbed.addFields({
           name: '🎯 In Progress',
-          value: inProgress.map(a => formatAchievement(a)).join('\n\n'),
-          inline: false
+          value: inProgress.map((a) => formatAchievement(a)).join('\n\n'),
+          inline: false,
         });
       }
 
@@ -157,7 +159,7 @@ export async function execute(interaction: CommandInteraction) {
         achievementsEmbed.addFields({
           name: '🔒 Locked',
           value: `${lockedCount} more achievements to discover!`,
-          inline: false
+          inline: false,
         });
       }
 

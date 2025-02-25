@@ -37,7 +37,8 @@ export const data = new SlashCommandBuilder()
         { name: '✨ Rare', value: 'rare' },
         { name: '⭐ Common', value: 'common' }
       )
-  );
+  )
+  .setContexts([0, 1, 2]); // Guild, BotDM, PrivateChannel
 
 interface AchievementFilter {
   category?: string;

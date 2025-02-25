@@ -18,7 +18,8 @@ export const data = new SlashCommandBuilder()
         { name: 'Common Artists', value: 'artists' },
         { name: 'Music Battle', value: 'battle' }
       )
-  );
+  )
+  .setContexts([0, 1, 2]); // Guild, BotDM, PrivateChannel
 
 export async function execute(interaction: CommandInteraction) {
   const targetUser = interaction.options.getUser('user')!;

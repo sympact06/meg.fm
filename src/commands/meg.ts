@@ -33,8 +33,8 @@ const typedSpecialEffects = specialEffects as SpecialEffects;
 
 export const data = new SlashCommandBuilder()
   .setName('meg')
-  .setDescription('Displays your currently playing Spotify track')
-  .setDMPermission(true);
+  .setDescription('View currently playing track')
+  .setContexts([0, 1, 2]); // Guild, BotDM, PrivateChannel
 
 export async function execute(interaction: CommandInteraction) {
   const discordId = interaction.user.id;

@@ -12,6 +12,7 @@ import { getDB } from '../db/database';
 export const data = new SlashCommandBuilder()
   .setName('friend')
   .setDescription('Manage your music friends')
+  .setContexts([0, 1, 2]) // Guild, BotDM, PrivateChannel
   .addSubcommand((sub) =>
     sub
       .setName('request')
