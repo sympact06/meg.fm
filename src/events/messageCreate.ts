@@ -9,7 +9,7 @@ export async function execute(message: Message, client: any) {
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const commandName = args.shift()?.toLowerCase();
   if (!commandName) return;
-  
+
   const command = client.commands.get(commandName);
   if (!command) return;
 

@@ -18,13 +18,8 @@ validateEnvironment();
 // Initialize performance monitoring
 const monitor = PerformanceMonitor.getInstance();
 
-const client = new Client({ 
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.MessageContent
-  ]
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
 }) as any;
 
 // Initialize collections
@@ -34,7 +29,7 @@ async function initializeCommands(): Promise<void> {
   const startTime = monitor.startTimer();
   try {
     const commandsPath = join(__dirname, 'commands');
-    const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.ts'));
+    const commandFiles = readdirSync(commandsPath).filter((file) => file.endsWith('.ts'));
     const commandsData: any[] = [];
 
     for (const file of commandFiles) {
@@ -44,11 +39,10 @@ async function initializeCommands(): Promise<void> {
     }
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
-    await rest.put(
-      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
-      { body: commandsData }
-    );
-    
+    await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!), {
+      body: commandsData,
+    });
+
     monitor.recordMetric('command-init', { duration: performance.now() - startTime });
     console.log('Successfully registered application commands.');
   } catch (error) {
@@ -62,7 +56,7 @@ async function initializeEvents(): Promise<void> {
   const startTime = monitor.startTimer();
   try {
     const eventsPath = join(__dirname, 'events');
-    const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.ts'));
+    const eventFiles = readdirSync(eventsPath).filter((file) => file.endsWith('.ts'));
 
     for (const file of eventFiles) {
       const event = require(join(eventsPath, file));
@@ -86,7 +80,7 @@ function validateEnvironment(): void {
     'DISCORD_TOKEN',
     'DISCORD_CLIENT_ID',
     'SPOTIFY_CLIENT_ID',
-    'SPOTIFY_CLIENT_SECRET'
+    'SPOTIFY_CLIENT_SECRET',
   ];
 
   for (const key of required) {
@@ -128,13 +122,13 @@ async function main(): Promise<void> {
     await initDB();
     await initializeCommands();
     await initializeEvents();
-    
+
     client.once('ready', async () => {
       console.log('Bot is ready!');
       const spotifyService = SpotifyService.getInstance({
         clientId: process.env.SPOTIFY_CLIENT_ID!,
         clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
-        redirectUri: process.env.SPOTIFY_REDIRECT_URI!
+        redirectUri: process.env.SPOTIFY_REDIRECT_URI!,
       });
       const trackingService = TrackingService.getInstance(spotifyService);
       await trackingService.initializeFromDatabase();
@@ -143,7 +137,6 @@ async function main(): Promise<void> {
     await client.login(process.env.DISCORD_TOKEN);
     await startServer();
     scheduleBackups();
-
   } catch (error) {
     console.error('Application startup failed:', error);
     process.exit(1);

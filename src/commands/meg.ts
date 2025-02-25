@@ -2,7 +2,6 @@ import {
   SlashCommandBuilder,
   CommandInteraction,
   EmbedBuilder,
-  Message,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -16,6 +15,7 @@ import { getTotalVotes, getUserVote, recordVote } from '../db/reactions';
 import { extractColors } from '../utils/colorExtractor';
 import specialEffects from '../config/specialEffects.json';
 import { TrackingService } from '../services/trackingService';
+import { SpotifyService } from '../services/streaming/SpotifyService';
 
 type SpecialEffect = {
   effect: string;
@@ -36,21 +36,22 @@ export const data = new SlashCommandBuilder()
   .setDescription('Displays your currently playing Spotify track')
   .setDMPermission(true);
 
-export async function execute(context: CommandInteraction | Message, args?: string[]) {
-  const discordId = 'user' in context ? context.user.id : context.author.id;
+export async function execute(interaction: CommandInteraction) {
+  const discordId = interaction.user.id;
   console.log('Command executed by:', discordId);
 
-  const trackingService = TrackingService.getInstance();
+  const spotifyService = SpotifyService.getInstance({
+    clientId: process.env.SPOTIFY_CLIENT_ID!,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
+    redirectUri: process.env.SPOTIFY_REDIRECT_URI!,
+  });
+  const trackingService = TrackingService.getInstance(spotifyService);
   trackingService.addUser(discordId);
   trackingService.startTracking();
 
   const tokens = await getTokens(discordId);
   if (!tokens) {
-    if (context instanceof CommandInteraction) {
-      await context.reply("You haven't authorized yet. Please use `/authorize`.");
-    } else {
-      await context.reply("You haven't authorized yet. Please use `.authorize`.");
-    }
+    await interaction.reply("You haven't authorized yet. Please use `/authorize`.");
     return;
   }
 
@@ -64,8 +65,8 @@ export async function execute(context: CommandInteraction | Message, args?: stri
       await updateAccessToken(discordId, accessToken, newExpiresAt);
     } catch (error) {
       console.error('Error refreshing token:', error);
-      await context.reply(
-        'Error refreshing your Spotify token. Please re-authorize with `/authorize` or `.authorize`.'
+      await interaction.reply(
+        'Error refreshing your Spotify token. Please re-authorize with `/authorize`.'
       );
       return;
     }
@@ -78,12 +79,11 @@ export async function execute(context: CommandInteraction | Message, args?: stri
 
     if (response.data && response.data.item) {
       const track = response.data.item;
-      const invokerId = context instanceof CommandInteraction ? context.user.id : context.author.id;
       console.log('Track info:', {
         id: track.id,
         name: track.name,
         artist: track.artists[0].name,
-        invoker: invokerId,
+        invoker: interaction.user.id,
       });
 
       const colors = extractColors(track.album.images[0].url);
@@ -93,7 +93,7 @@ export async function execute(context: CommandInteraction | Message, args?: stri
       const effect = songEffect || artistEffect;
 
       const votes = await getTotalVotes(track.id);
-      const userVote = await getUserVote(track.id, invokerId);
+      const userVote = await getUserVote(track.id, interaction.user.id);
       console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
 
       const artistImage = track.artists[0].images
@@ -116,22 +116,22 @@ export async function execute(context: CommandInteraction | Message, args?: stri
 
       console.log(
         'Creating buttons with customId pattern:',
-        `like/dislike_${track.id}_${invokerId}`
+        `like/dislike_${track.id}_${interaction.user.id}`
       );
-      const row = createVoteButtons(track.id, invokerId, userVote);
+      const row = createVoteButtons(track.id, interaction.user.id, userVote);
 
-      const reply = await context.reply({
+      const reply = await interaction.reply({
         embeds: [embed],
         components: [row],
         fetchReply: true,
       });
       console.log('Reply sent:', { messageId: reply.id });
     } else {
-      await context.reply('No track is currently playing.');
+      await interaction.reply('No track is currently playing.');
     }
   } catch (error) {
     console.error('Error fetching currently playing track:', error);
-    await context.reply('Error fetching your currently playing track.');
+    await interaction.reply('Error fetching your currently playing track.');
   }
 }
 
