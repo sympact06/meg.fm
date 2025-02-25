@@ -1,13 +1,5 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
-import {
-  addFriend,
-  getFriendsList,
-  getFriendship,
-  acceptFriend,
-  declineFriend,
-  getPendingRequests,
-} from '../db/friends';
-import { getDB } from '../db/database';
+import { prisma } from '../lib/prisma';
 
 export const data = new SlashCommandBuilder()
   .setName('friend')
@@ -41,11 +33,10 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) => sub.setName('list').setDescription('List your music friends'));
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const db = await getDB(); // Get db instance
   const subcommand = interaction.options.getSubcommand();
 
   switch (subcommand) {
-    case 'request':
+    case 'request': {
       const userToAdd = interaction.options.getUser('user')!;
       if (userToAdd.id === interaction.user.id) {
         await interaction.reply({
@@ -55,7 +46,15 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         return;
       }
 
-      const existingFriendship = await getFriendship(interaction.user.id, userToAdd.id);
+      const existingFriendship = await prisma.friend.findUnique({
+        where: {
+          userId_friendId: {
+            userId: interaction.user.id,
+            friendId: userToAdd.id,
+          },
+        },
+      });
+
       if (existingFriendship) {
         await interaction.reply({
           content: "You've already sent a friend request or are already friends!",
@@ -64,21 +63,32 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         return;
       }
 
-      await addFriend(interaction.user.id, userToAdd.id);
+      await prisma.friend.create({
+        data: {
+          userId: interaction.user.id,
+          friendId: userToAdd.id,
+          status: 'pending',
+          createdAt: Math.floor(Date.now() / 1000),
+          updatedAt: Math.floor(Date.now() / 1000),
+        },
+      });
+
       await interaction.reply({
         content: `Sent friend request to ${userToAdd.username}! They need to accept it using \`/friend accept\``,
         flags: ['Ephemeral'],
       });
       break;
+    }
 
-    case 'accept':
+    case 'accept': {
       const userToAccept = interaction.options.getUser('user')!;
-      const pendingRequest = await db.get(
-        'SELECT * FROM friends WHERE user_id = ? AND friend_id = ? AND status = ?',
-        userToAccept.id,
-        interaction.user.id,
-        'pending'
-      );
+      const pendingRequest = await prisma.friend.findFirst({
+        where: {
+          userId: userToAccept.id,
+          friendId: interaction.user.id,
+          status: 'pending',
+        },
+      });
 
       if (!pendingRequest) {
         await interaction.reply({
@@ -88,33 +98,65 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         return;
       }
 
-      await acceptFriend(interaction.user.id, userToAccept.id);
+      await prisma.friend.update({
+        where: {
+          userId_friendId: {
+            userId: userToAccept.id,
+            friendId: interaction.user.id,
+          },
+        },
+        data: {
+          status: 'accepted',
+          updatedAt: Math.floor(Date.now() / 1000),
+        },
+      });
+
       await interaction.reply({
         content: `Accepted ${userToAccept.username}'s friend request! You can now view each other's stats.`,
         flags: ['Ephemeral'],
       });
       break;
+    }
 
-    case 'decline':
+    case 'decline': {
       const userToDecline = interaction.options.getUser('user')!;
-      await declineFriend(interaction.user.id, userToDecline.id);
+
+      await prisma.friend.delete({
+        where: {
+          userId_friendId: {
+            userId: userToDecline.id,
+            friendId: interaction.user.id,
+          },
+        },
+      });
+
       await interaction.reply({
         content: `Declined ${userToDecline.username}'s friend request.`,
         flags: ['Ephemeral'],
       });
       break;
+    }
 
-    case 'pending':
-      const requests = await getPendingRequests(interaction.user.id);
+    case 'pending': {
+      const requests = await prisma.friend.findMany({
+        where: {
+          friendId: interaction.user.id,
+          status: 'pending',
+        },
+      });
+
       if (requests.length === 0) {
-        await interaction.reply({ content: 'No pending friend requests!', flags: ['Ephemeral'] });
+        await interaction.reply({
+          content: 'No pending friend requests!',
+          flags: ['Ephemeral'],
+        });
         return;
       }
 
       const requestUsers = await Promise.all(
         requests.map(async (r) => {
-          const user = await interaction.client.users.fetch(r.user_id);
-          return `• ${user.username} (sent ${new Date(r.added_at).toLocaleDateString()})`;
+          const user = await interaction.client.users.fetch(r.userId);
+          return `• ${user.username} (sent ${new Date(r.createdAt * 1000).toLocaleDateString()})`;
         })
       );
 
@@ -125,9 +167,18 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       await interaction.reply({ embeds: [pendingEmbed], flags: ['Ephemeral'] });
       break;
+    }
 
-    case 'list':
-      const friends = await getFriendsList(interaction.user.id);
+    case 'list': {
+      const friends = await prisma.friend.findMany({
+        where: {
+          OR: [
+            { userId: interaction.user.id, status: 'accepted' },
+            { friendId: interaction.user.id, status: 'accepted' },
+          ],
+        },
+      });
+
       if (friends.length === 0) {
         await interaction.reply({
           content: "You don't have any music friends yet!",
@@ -138,8 +189,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       const friendUsers = await Promise.all(
         friends.map(async (f) => {
-          const user = await interaction.client.users.fetch(f.friend_id);
-          return `• ${user.username} (since ${new Date(f.added_at).toLocaleDateString()})`;
+          const userId = f.userId === interaction.user.id ? f.friendId : f.userId;
+          const user = await interaction.client.users.fetch(userId);
+          return `• ${user.username} (since ${new Date(f.createdAt * 1000).toLocaleDateString()})`;
         })
       );
 
@@ -150,5 +202,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       await interaction.reply({ embeds: [embed], flags: ['Ephemeral'] });
       break;
+    }
   }
 }

@@ -1,208 +1,255 @@
-import { Database } from 'sqlite';
-import { getDB } from './database';
+import { prisma } from '../lib/prisma';
+import type { UserStats } from '../interfaces';
 
-export interface UserStats {
-  total_tracks_played: number;
-  total_listening_time_ms: number;
-  favorite_artist: string;
-  favorite_track: string;
-  last_checked: number;
-}
-
-export interface ArtistStats {
+interface ArtistStats {
   artistName: string;
   playCount: number;
-  totalTime: number;
-  lastPlayed: number;
+  totalTime?: number;
+  lastPlayed?: number;
+}
+
+interface TrackStats {
+  trackName: string;
+  artistName: string;
+  playCount: number;
 }
 
 export async function getUserStats(discordId: string): Promise<UserStats | null> {
-  const db = await getDB();
-  return db.get('SELECT * FROM user_statistics WHERE discordId = ?', discordId);
-}
-
-export async function getUserMostPlayedArtists(
-  discordId: string,
-  limit: number = 3
-): Promise<ArtistStats[]> {
-  const db = await getDB();
-  return db.all(
-    `
-    SELECT 
-      artistName,
-      COUNT(*) as plays
-    FROM listening_history 
-    WHERE discordId = ?
-    GROUP BY artistName
-    ORDER BY plays DESC
-    LIMIT ?
-  `,
-    discordId,
-    limit
-  );
-}
-
-export async function getTopTracks(discordId: string, limit: number = 3) {
-  const db = await getDB();
-  return db.all(
-    `
-    SELECT 
-      trackName,
-      artistName,
-      COUNT(*) as plays
-    FROM listening_history 
-    WHERE discordId = ?
-    GROUP BY trackId
-    ORDER BY plays DESC
-    LIMIT ?
-  `,
-    discordId,
-    limit
-  );
-}
-
-export async function getDetailedArtistStats(discordId: string): Promise<ArtistStats[]> {
-  const db = await getDB();
-  return db.all(
-    `
-    SELECT 
-      artistName,
-      COUNT(*) as playCount,
-      SUM(duration_ms) as totalTime,
-      MAX(timestamp) as lastPlayed
-    FROM listening_history
-    WHERE discordId = ?
-    GROUP BY artistName
-    ORDER BY playCount DESC
-    LIMIT 10
-  `,
-    discordId
-  );
-}
-
-export async function getGenreStats(discordId: string) {
-  // wip
-  return [];
-}
-
-export async function getListeningTrends(discordId: string) {
-  const db = await getDB();
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-
-  return db.all(
-    `
-    SELECT 
-      date(datetime(timestamp, 'unixepoch')) as day,
-      COUNT(*) as plays,
-      COUNT(DISTINCT artistName) as unique_artists
-    FROM listening_history
-    WHERE discordId = ? AND timestamp > ?
-    GROUP BY day
-    ORDER BY day DESC
-  `,
-    discordId,
-    Math.floor(thirtyDaysAgo / 1000)
-  );
-}
-
-export async function compareListeningStats(user1: string, user2: string) {
-  const db = await getDB();
-  const [stats1, stats2] = await Promise.all([getUserStats(user1), getUserStats(user2)]);
-
-  const commonArtists = await db.all(
-    `
-    SELECT h1.artistName, 
-           COUNT(DISTINCT h1.trackId) as user1_tracks,
-           COUNT(DISTINCT h2.trackId) as user2_tracks
-    FROM listening_history h1
-    INNER JOIN listening_history h2 
-      ON h1.artistName = h2.artistName
-    WHERE h1.discordId = ? AND h2.discordId = ?
-    GROUP BY h1.artistName
-    ORDER BY user1_tracks + user2_tracks DESC
-    LIMIT 5
-  `,
-    user1,
-    user2
-  );
+  const [topArtists, topTracks, totalPlaytime, trackCount] = await Promise.all([
+    getTopArtists(discordId),
+    getTopTracks(discordId),
+    getTotalPlaytime(discordId),
+    getTrackCount(discordId),
+  ]);
 
   return {
-    stats1,
-    stats2,
-    commonArtists,
-    matchScore: calculateMatchScore(stats1, stats2, commonArtists),
+    topArtists,
+    topTracks,
+    totalPlaytime,
+    trackCount,
   };
 }
 
-function calculateMatchScore(
-  stats1: UserStats | null,
-  stats2: UserStats | null,
-  commonArtists: any[]
-): number {
-  if (!stats1 || !stats2) return 0;
+export async function getTopArtists(discordId: string, limit: number = 3): Promise<ArtistStats[]> {
+  const results = await prisma.listeningHistory.groupBy({
+    by: ['artistName'],
+    where: {
+      discordId,
+    },
+    _count: {
+      id: true,
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: limit,
+  });
 
-  const artistScore = commonArtists.length * 10;
-  const timeScore =
-    (Math.min(stats1.total_listening_time_ms, stats2.total_listening_time_ms) /
-      Math.max(stats1.total_listening_time_ms, stats2.total_listening_time_ms)) *
-    50;
-
-  return Math.round(artistScore + timeScore);
+  return results.map((result) => ({
+    artistName: result.artistName,
+    playCount: result._count.id,
+  }));
 }
 
-export async function findCommonArtists(user1: string, user2: string): Promise<any[]> {
-  const db = await getDB();
-  return db.all(
-    `
-    SELECT 
-      h1.artistName,
-      COUNT(DISTINCT h1.trackId) as user1_tracks,
-      COUNT(DISTINCT h2.trackId) as user2_tracks,
-      h1.discordId as user1_id,
-      h2.discordId as user2_id
-    FROM listening_history h1
-    INNER JOIN listening_history h2 
-      ON h1.artistName = h2.artistName
-    WHERE h1.discordId = ? AND h2.discordId = ?
-    GROUP BY h1.artistName
-    HAVING user1_tracks >= 2 AND user2_tracks >= 2
-    ORDER BY (user1_tracks + user2_tracks) DESC
-    LIMIT 10
-  `,
-    user1,
-    user2
+export async function getTopTracks(discordId: string, limit: number = 3): Promise<TrackStats[]> {
+  const results = await prisma.listeningHistory.groupBy({
+    by: ['trackName', 'artistName'],
+    where: {
+      discordId,
+    },
+    _count: {
+      id: true,
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: limit,
+  });
+
+  return results.map((result) => ({
+    trackName: result.trackName,
+    artistName: result.artistName,
+    playCount: result._count.id,
+  }));
+}
+
+export async function getTotalPlaytime(discordId: string): Promise<number> {
+  const result = await prisma.listeningHistory.aggregate({
+    where: {
+      discordId,
+    },
+    _sum: {
+      durationMs: true,
+    },
+  });
+
+  return result._sum.durationMs || 0;
+}
+
+export async function getTrackCount(discordId: string): Promise<number> {
+  return await prisma.listeningHistory.count({
+    where: {
+      discordId,
+    },
+  });
+}
+
+export async function getDetailedArtistStats(discordId: string): Promise<ArtistStats[]> {
+  const results = await prisma.listeningHistory.groupBy({
+    by: ['artistName'],
+    where: { discordId },
+    _count: {
+      id: true,
+    },
+    _sum: {
+      durationMs: true,
+    },
+    _max: {
+      timestamp: true,
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: 10,
+  });
+
+  return results.map((result) => ({
+    artistName: result.artistName,
+    playCount: result._count.id,
+    totalTime: result._sum.durationMs || 0,
+    lastPlayed: result._max.timestamp || 0,
+  }));
+}
+
+export async function getRecentHighlights(discordId: string) {
+  const lastWeek = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+
+  const results = await prisma.listeningHistory.groupBy({
+    by: ['artistName'],
+    where: {
+      discordId,
+      timestamp: { gt: lastWeek },
+    },
+    _count: {
+      id: true,
+    },
+    having: {
+      _count: {
+        id: {
+          gte: 3,
+        },
+      },
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: 5,
+  });
+
+  const highlights = await Promise.all(
+    results.map(async (result) => {
+      const tracks = await prisma.listeningHistory.findMany({
+        where: {
+          discordId,
+          artistName: result.artistName,
+          timestamp: { gt: lastWeek },
+        },
+        distinct: ['trackName'],
+        select: { trackName: true },
+      });
+
+      return {
+        artistName: result.artistName,
+        play_count: result._count.id,
+        tracks: tracks.map((t) => t.trackName).join(','),
+      };
+    })
   );
+
+  return highlights;
+}
+
+export async function findCommonArtists(user1: string, user2: string) {
+  const results = await prisma.$queryRaw`
+    WITH user1_plays AS (
+      SELECT artistName, COUNT(DISTINCT trackId) as plays
+      FROM ListeningHistory
+      WHERE discordId = ${user1}
+      GROUP BY artistName
+    ),
+    user2_plays AS (
+      SELECT artistName, COUNT(DISTINCT trackId) as plays
+      FROM ListeningHistory
+      WHERE discordId = ${user2}
+      GROUP BY artistName
+    )
+    SELECT 
+      u1.artistName,
+      u1.plays as user1_tracks,
+      u2.plays as user2_tracks
+    FROM user1_plays u1
+    INNER JOIN user2_plays u2 ON u1.artistName = u2.artistName
+    WHERE u1.plays >= 2 AND u2.plays >= 2
+    ORDER BY (u1.plays + u2.plays) DESC
+    LIMIT 10
+  `;
+  return results;
 }
 
 export async function getListeningBattle(user1: string, user2: string) {
-  const db = await getDB();
-
   const [user1Stats, user2Stats] = await Promise.all([getUserStats(user1), getUserStats(user2)]);
 
-  const recentActivity = await db.all(
-    `
-    SELECT 
-      discordId,
-      COUNT(*) as tracks_today,
-      COUNT(DISTINCT artistName) as artists_today
-    FROM listening_history
-    WHERE discordId IN (?, ?)
-    AND timestamp > ?
-    GROUP BY discordId
-  `,
-    user1,
-    user2,
-    Math.floor(Date.now() / 1000) - 86400
-  );
+  const today = Math.floor(Date.now() / 1000) - 86400;
+
+  const recentActivity = await prisma.listeningHistory.groupBy({
+    by: ['discordId'],
+    where: {
+      discordId: { in: [user1, user2] },
+      timestamp: { gt: today },
+    },
+    _count: {
+      id: true,
+      artistName: true,
+    },
+  });
+
+  const formattedActivity = recentActivity.map((activity) => ({
+    discordId: activity.discordId,
+    tracks_today: activity._count.id,
+    artists_today: activity._count.artistName,
+  }));
 
   return {
     overall: {
       user1: user1Stats,
       user2: user2Stats,
     },
-    today: recentActivity,
-    battleScore: calculateBattleScore(user1Stats, user2Stats, recentActivity),
+    today: formattedActivity,
+    battleScore: calculateBattleScore(user1Stats, user2Stats, formattedActivity),
   };
+}
+
+export async function getListeningTrends(discordId: string) {
+  const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+
+  return prisma.$queryRaw`
+    SELECT 
+      date(datetime(timestamp, 'unixepoch')) as day,
+      COUNT(*) as plays,
+      COUNT(DISTINCT artistName) as unique_artists
+    FROM ListeningHistory
+    WHERE discordId = ${discordId} AND timestamp > ${thirtyDaysAgo}
+    GROUP BY day
+    ORDER BY day DESC
+  `;
 }
 
 function calculateBattleScore(
@@ -228,29 +275,85 @@ function calculateBattleScore(
 }
 
 function calculateIndividualScore(stats: UserStats, today: any): number {
-  const baseScore = Math.log10(stats.total_tracks_played) * 10;
+  const baseScore = Math.log10(stats.trackCount || 1) * 10;
   const activityScore = today.tracks_today * 2 + today.artists_today * 5;
   return Math.round(baseScore + activityScore);
 }
 
-export async function getRecentHighlights(discordId: string) {
-  const db = await getDB();
-  const lastWeek = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+export async function compareListeningStats(user1: string, user2: string) {
+  const [stats1, stats2] = await Promise.all([getUserStats(user1), getUserStats(user2)]);
 
-  return db.all(
-    `
-    SELECT 
-      artistName,
-      COUNT(*) as play_count,
-      GROUP_CONCAT(DISTINCT trackName) as tracks
-    FROM listening_history
-    WHERE discordId = ? AND timestamp > ?
-    GROUP BY artistName
-    HAVING play_count >= 3
-    ORDER BY play_count DESC
-    LIMIT 5
-  `,
-    discordId,
-    lastWeek
-  );
+  const commonArtists = await prisma.listeningHistory.groupBy({
+    by: ['artistName'],
+    where: {
+      discordId: { in: [user1, user2] },
+    },
+    _count: {
+      id: true,
+    },
+    having: {
+      _count: {
+        id: {
+          gt: 1,
+        },
+      },
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: 5,
+  });
+
+  return {
+    stats1,
+    stats2,
+    commonArtists,
+    matchScore: calculateMatchScore(stats1, stats2, commonArtists),
+  };
+}
+
+function calculateMatchScore(
+  stats1: UserStats | null,
+  stats2: UserStats | null,
+  commonArtists: any[]
+): number {
+  if (!stats1 || !stats2) return 0;
+
+  const artistScore = commonArtists.length * 10;
+  const timeScore =
+    (Math.min(stats1.totalPlaytime || 0, stats2.totalPlaytime || 0) /
+      Math.max(stats1.totalPlaytime || 1, stats2.totalPlaytime || 1)) *
+    50;
+
+  return Math.round(artistScore + timeScore);
+}
+
+export async function getUserMostPlayedArtists(
+  discordId: string,
+  limit: number = 3
+): Promise<ArtistStats[]> {
+  const results = await prisma.listeningHistory.groupBy({
+    by: ['artistName'],
+    where: { discordId },
+    _count: {
+      id: true,
+    },
+    _sum: {
+      durationMs: true,
+    },
+    orderBy: {
+      _count: {
+        id: 'desc',
+      },
+    },
+    take: limit,
+  });
+
+  return results.map((result) => ({
+    artistName: result.artistName,
+    playCount: result._count.id,
+    totalTime: result._sum.durationMs || 0,
+  }));
 }

@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SpotifyToken {
+  discordId     String   @id
+  accessToken   String   @map("access_token")
+  refreshToken  String   @map("refresh_token")
+  expiresAt     Int      @map("expires_at")
+
+  @@map("spotify_tokens")
+}
+
+model ListeningHistory {
+  id          Int      @id @default(autoincrement())
+  discordId   String
+  trackId     String
+  trackName   String
+  artistName  String
+  albumName   String
+  timestamp   Int
+  durationMs  Int      @map("duration_ms")
+
+  @@unique([discordId, trackId, timestamp])
+  @@index([discordId])
+  @@index([timestamp])
+  @@map("listening_history")
+}
+
+model UserStatistic {
+  discordId            String   @id
+  totalTracksPlayed    Int      @default(0) @map("total_tracks_played")
+  totalListeningTimeMs Int      @default(0) @map("total_listening_time_ms")
+  lastChecked          Int      @default(0) @map("last_checked")
+  favoriteArtist      String?  @map("favorite_artist")
+  favoriteTrack       String?  @map("favorite_track")
+
+  @@map("user_statistics")
+}
+
+model UserAchievement {
+  discordId     String
+  achievementId String   @map("achievement_id")
+  unlockedAt    Int      @map("unlocked_at")
+  progress      Int      @default(0)
+
+  @@id([discordId, achievementId])
+  @@index([discordId])
+  @@map("user_achievements")
+}
+
+model Friend {
+  userId    String
+  friendId  String
+  status    FriendStatus
+  createdAt Int      @map("created_at")
+  updatedAt Int      @map("updated_at")
+
+  @@id([userId, friendId])
+  @@map("friends")
+}
+
+model TrackVote {
+  trackId   String
+  discordId String
+  vote      String
+  votedAt   Int    @map("voted_at")
+
+  @@id([trackId, discordId])
+  @@map("track_votes")
+}
+
+enum FriendStatus {
+  pending
+  accepted
+  blocked
+}

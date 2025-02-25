@@ -1,6 +1,7 @@
 import { copyFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { prisma } from '../lib/prisma';
 
 const BACKUP_DIR = './backups';
 const MAX_BACKUPS = 7; // Keep a week's worth of backups
@@ -13,15 +14,17 @@ export async function createBackup(): Promise<void> {
 
   const date = new Date();
   const timestamp = date.toISOString().replace(/[:.]/g, '-');
-  const dbPath = process.env.DATABASE_PATH || './data.sqlite';
   const backupPath = join(BACKUP_DIR, `backup-${timestamp}.sqlite`);
 
   try {
-    // Wait for any pending writes
+    // Ensure all writes are completed by disconnecting Prisma
+    await prisma.$disconnect();
+
+    // Wait a bit to ensure all file handles are closed
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Create backup
-    await copyFile(dbPath, backupPath);
+    await copyFile('./prisma/data.sqlite', backupPath);
     console.log(`Database backup created: ${backupPath}`);
 
     // Clean up old backups

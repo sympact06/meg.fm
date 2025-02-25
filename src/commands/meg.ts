@@ -55,13 +55,13 @@ export async function execute(interaction: CommandInteraction) {
     return;
   }
 
-  let accessToken = tokens.access_token;
+  let accessToken = tokens.accessToken;
   const currentTime = Math.floor(Date.now() / 1000);
-  if (tokens.expires_at < currentTime) {
+  if (tokens.expiresAt < currentTime) {
     try {
-      const newTokenData = await refreshAccessToken(tokens.refresh_token);
-      accessToken = newTokenData.access_token;
-      const newExpiresAt = currentTime + newTokenData.expires_in;
+      const newTokenData = await spotifyService.refreshToken(tokens.refreshToken);
+      accessToken = newTokenData.accessToken;
+      const newExpiresAt = currentTime + newTokenData.expiresIn;
       await updateAccessToken(discordId, accessToken, newExpiresAt);
     } catch (error) {
       console.error('Error refreshing token:', error);
@@ -73,57 +73,35 @@ export async function execute(interaction: CommandInteraction) {
   }
 
   try {
-    const response = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const track = await spotifyService.getCurrentTrack(accessToken);
+    if (track) {
+      const votes = await getTotalVotes(track.id);
+      const userVote = await getUserVote(track.id, interaction.user.id);
 
-    if (response.data && response.data.item) {
-      const track = response.data.item;
-      console.log('Track info:', {
-        id: track.id,
-        name: track.name,
-        artist: track.artists[0].name,
-        invoker: interaction.user.id,
-      });
-
-      const colors = extractColors(track.album.images[0].url);
-
-      const artistEffect = typedSpecialEffects.artists[track.artists[0].name];
+      const artistEffect = typedSpecialEffects.artists[track.artist];
       const songEffect = typedSpecialEffects.songs[track.name];
       const effect = songEffect || artistEffect;
 
-      const votes = await getTotalVotes(track.id);
-      const userVote = await getUserVote(track.id, interaction.user.id);
-      console.log('Initial votes:', { trackId: track.id, ...votes, userVote });
-
-      const artistImage = track.artists[0].images
-        ? track.artists[0].images[0].url
-        : track.album.images[2].url;
-
       const embed = new EmbedBuilder()
-        .setColor(effect?.color ? effect.color : colors.primary)
+        .setColor(effect?.color ? effect.color : '#1DB954')
         .setTitle(applyEffect(track.name, effect?.effect))
-        .setURL(track.external_urls.spotify)
+        .setURL(`https://open.spotify.com/track/${track.id}`)
         .setAuthor({
-          name: track.artists.map((artist: any) => artist.name).join(', '),
+          name: track.artist,
         })
-        .setThumbnail(artistImage)
+        .setThumbnail(track.imageUrl || '')
         .addFields(
-          { name: 'Album', value: track.album.name, inline: true },
-          { name: 'Duration', value: formatDuration(track.duration_ms), inline: true },
+          { name: 'Album', value: track.album, inline: true },
+          { name: 'Duration', value: formatDuration(track.duration), inline: true },
           { name: 'Votes', value: `👍 ${votes.likes} • 👎 ${votes.dislikes}`, inline: true }
         );
 
-      console.log(
-        'Creating buttons with customId pattern:',
-        `like/dislike_${track.id}_${interaction.user.id}`
-      );
       const row = createVoteButtons(track.id, interaction.user.id, userVote);
 
       const reply = await interaction.reply({
         embeds: [embed],
         components: [row],
-        fetchReply: true,
+        withResponse: true,
       });
       console.log('Reply sent:', { messageId: reply.id });
     } else {
@@ -156,15 +134,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   }
 
   console.log('Recording vote:', { userId, trackId, action });
-  const voteRecorded = await recordVote(trackId, userId, action);
-  if (!voteRecorded) {
-    console.log('Failed to record vote');
-    await interaction.reply({
-      content: 'Failed to record your vote. Please try again.',
-      ephemeral: true,
-    });
-    return;
-  }
+  await recordVote(trackId, userId, action);
 
   const votes = await getTotalVotes(trackId);
   console.log('Updated vote counts:', { trackId, ...votes });
@@ -201,12 +171,12 @@ function formatDuration(duration_ms: number): string {
 }
 
 function applyEffect(text: string, effectName?: string): string {
-  if (!effectName || !(effectName in typedSpecialEffects.effects)) return text;
-  const effectTemplate = typedSpecialEffects.effects[effectName];
-  return effectTemplate.replace('%s', text);
+  if (!effectName) return text;
+  const effect = typedSpecialEffects.effects[effectName];
+  return effect ? effect.replace('%s', text) : text;
 }
 
-function createVoteButtons(trackId: string, invokerId: string, userVote: string) {
+function createVoteButtons(trackId: string, invokerId: string, userVote: string | null) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`like_${trackId}_${invokerId}`)

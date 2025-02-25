@@ -1,153 +1,126 @@
-import { Database } from 'sqlite';
-import { getDB } from './database'; // Changed from initDB to getDB
-
-// Add status to friends table
-export async function setupFriendsTable() {
-  const db = await getDB();
-
-  await db.run('DROP TABLE IF EXISTS friends');
-
-  await db.run(`
-    CREATE TABLE IF NOT EXISTS friends (
-      user_id TEXT,
-      friend_id TEXT,
-      added_at INTEGER,
-      status TEXT DEFAULT 'pending', -- 'pending', 'accepted', 'declined'
-      PRIMARY KEY (user_id, friend_id)
-    )
-  `);
-}
+import { prisma } from '../lib/prisma';
 
 export async function addFriend(userId: string, friendId: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  const timestamp = Date.now();
-  return db.run(
-    'INSERT OR REPLACE INTO friends (user_id, friend_id, added_at, status) VALUES (?, ?, ?, ?)',
-    userId,
-    friendId,
-    timestamp,
-    'pending'
-  );
+  return prisma.friend.create({
+    data: {
+      userId,
+      friendId,
+      status: 'pending',
+      createdAt: Math.floor(Date.now() / 1000),
+      updatedAt: Math.floor(Date.now() / 1000),
+    },
+  });
 }
 
 export async function acceptFriend(userId: string, friendId: string) {
-  const db = await getDB();
-  // Update the original request to accepted
-  await db.run(
-    'UPDATE friends SET status = ? WHERE user_id = ? AND friend_id = ?',
-    'accepted',
-    friendId,
-    userId
-  );
-  // Create the reverse friendship entry
-  await db.run(
-    'INSERT OR REPLACE INTO friends (user_id, friend_id, added_at, status) VALUES (?, ?, ?, ?)',
-    userId,
-    friendId,
-    Date.now(),
-    'accepted'
-  );
+  return prisma.friend.update({
+    where: {
+      userId_friendId: {
+        userId: friendId,
+        friendId: userId,
+      },
+    },
+    data: {
+      status: 'accepted',
+      updatedAt: Math.floor(Date.now() / 1000),
+    },
+  });
 }
 
 export async function declineFriend(userId: string, friendId: string) {
-  const db = await getDB();
-  await db.run(
-    'UPDATE friends SET status = ? WHERE user_id = ? AND friend_id = ?',
-    'declined',
-    friendId,
-    userId
-  );
+  return prisma.friend.delete({
+    where: {
+      userId_friendId: {
+        userId: friendId,
+        friendId: userId,
+      },
+    },
+  });
 }
 
 export async function getPendingRequests(userId: string) {
-  const db = await getDB();
-  return db.all(
-    'SELECT user_id, added_at FROM friends WHERE friend_id = ? AND status = ?',
-    userId,
-    'pending'
-  );
+  return prisma.friend.findMany({
+    where: {
+      friendId: userId,
+      status: 'pending',
+    },
+    select: {
+      userId: true,
+      createdAt: true,
+    },
+  });
 }
 
 export async function removeFriend(userId: string, friendId: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  return db.run(
-    'DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)',
-    userId,
-    friendId,
-    friendId,
-    userId
-  );
+  await prisma.friend.deleteMany({
+    where: {
+      OR: [
+        { userId, friendId },
+        { userId: friendId, friendId: userId },
+      ],
+    },
+  });
 }
 
 export async function getFriendsList(userId: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  return db.all(
-    `SELECT DISTINCT 
-      CASE 
-        WHEN user_id = ? THEN friend_id 
-        ELSE user_id 
-      END as friend_id,
-      added_at 
-    FROM friends 
-    WHERE (user_id = ? OR friend_id = ?) 
-    AND status = 'accepted'`,
-    userId,
-    userId,
-    userId
-  );
+  return prisma.friend
+    .findMany({
+      where: {
+        OR: [
+          { userId, status: 'accepted' },
+          { friendId: userId, status: 'accepted' },
+        ],
+      },
+      select: {
+        userId: true,
+        friendId: true,
+        createdAt: true,
+      },
+    })
+    .then((friends) =>
+      friends.map((friend) => ({
+        friend_id: friend.userId === userId ? friend.friendId : friend.userId,
+        added_at: friend.createdAt,
+      }))
+    );
 }
 
 export async function getFriendship(userId: string, friendId: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  return db.get(
-    'SELECT * FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)',
-    userId,
-    friendId,
-    friendId,
-    userId
-  );
+  return prisma.friend.findFirst({
+    where: {
+      OR: [
+        { userId, friendId },
+        { userId: friendId, friendId: userId },
+      ],
+    },
+  });
 }
 
 export async function getFriendCount(userId: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  const result = await db.get(
-    'SELECT COUNT(*) as count FROM friends WHERE user_id = ? OR friend_id = ?',
-    userId,
-    userId
-  );
-  return result.count;
+  return prisma.friend.count({
+    where: {
+      OR: [{ userId }, { friendId: userId }],
+    },
+  });
 }
 
 export async function getMutualFriends(user1: string, user2: string) {
-  await setupFriendsTable();
-  const db = await getDB();
-  return db.all(
-    `
+  return prisma.$queryRaw`
     SELECT DISTINCT f1.friend_id
     FROM friends f1
     INNER JOIN friends f2 ON f1.friend_id = f2.friend_id
-    WHERE (f1.user_id = ? AND f2.user_id = ?)
-    AND f1.friend_id NOT IN (?, ?)
-  `,
-    user1,
-    user2,
-    user1,
-    user2
-  );
+    WHERE (f1.user_id = ${user1} AND f2.user_id = ${user2})
+    AND f1.friend_id NOT IN (${user1}, ${user2})
+  `;
 }
 
 export async function areFriends(user1: string, user2: string): Promise<boolean> {
-  const db = await getDB();
-  const friendship = await db.get(
-    'SELECT * FROM friends WHERE user_id = ? AND friend_id = ? AND status = ?',
-    user1,
-    user2,
-    'accepted'
-  );
+  const friendship = await prisma.friend.findFirst({
+    where: {
+      userId: user1,
+      friendId: user2,
+      status: 'accepted',
+    },
+  });
   return !!friendship;
 }

@@ -188,3 +188,5 @@ export class PerformanceMonitor {
     this.alerts = this.alerts.filter((a) => a.timestamp >= cutoff);
   }
 }
+
+export const monitor = PerformanceMonitor.getInstance();

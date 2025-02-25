@@ -1,79 +1,25 @@
-import { Client, GatewayIntentBits, Collection, REST, Routes, ActivityType } from 'discord.js';
+import { Client, GatewayIntentBits, ActivityType, REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 import express from 'express';
-import { readdirSync } from 'fs';
-import { join } from 'path';
+import { initializeCommands } from './commands';
+import { initializeEvents } from './events';
 import { loginRoute } from './auth/authorize';
 import { callbackRoute } from './auth/callback';
-import { initDB } from './db/database';
 import { TrackingService } from './services/trackingService';
 import { createBackup } from './utils/backup';
-import { PerformanceMonitor } from './services/monitoring/PerformanceMonitor';
+import { monitor } from './services/monitoring/PerformanceMonitor';
 import { SpotifyService } from './services/streaming/SpotifyService';
 
 // Load and validate environment variables
 config();
 validateEnvironment();
 
-// Initialize performance monitoring
-const monitor = PerformanceMonitor.getInstance();
-
+// Initialize Discord client with only necessary intents
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-}) as any;
-
-// Initialize collections
-client.commands = new Collection();
-
-async function initializeCommands(): Promise<void> {
-  const startTime = monitor.startTimer();
-  try {
-    const commandsPath = join(__dirname, 'commands');
-    const commandFiles = readdirSync(commandsPath).filter((file) => file.endsWith('.ts'));
-    const commandsData: any[] = [];
-
-    for (const file of commandFiles) {
-      const command = require(join(commandsPath, file));
-      client.commands.set(command.data.name, command);
-      commandsData.push(command.data.toJSON());
-    }
-
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
-    await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!), {
-      body: commandsData,
-    });
-
-    monitor.recordMetric('command-init', { duration: performance.now() - startTime });
-    console.log('Successfully registered application commands.');
-  } catch (error) {
-    monitor.recordError(error as Error);
-    console.error('Failed to initialize commands:', error);
-    throw error;
-  }
-}
-
-async function initializeEvents(): Promise<void> {
-  const startTime = monitor.startTimer();
-  try {
-    const eventsPath = join(__dirname, 'events');
-    const eventFiles = readdirSync(eventsPath).filter((file) => file.endsWith('.ts'));
-
-    for (const file of eventFiles) {
-      const event = require(join(eventsPath, file));
-      if (event.once) {
-        client.once(event.name, (...args: any[]) => event.execute(...args, client));
-      } else {
-        client.on(event.name, (...args: any[]) => event.execute(...args, client));
-      }
-    }
-
-    monitor.recordMetric('event-init', { duration: performance.now() - startTime });
-  } catch (error) {
-    monitor.recordError(error as Error);
-    console.error('Failed to initialize events:', error);
-    throw error;
-  }
-}
+  intents: [
+    GatewayIntentBits.Guilds,
+  ],
+});
 
 function validateEnvironment(): void {
   const required = [
@@ -91,17 +37,15 @@ function validateEnvironment(): void {
 }
 
 function scheduleBackups(): void {
-  // Run backup every day at 3 AM
+  const BACKUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
   setInterval(async () => {
-    const now = new Date();
-    if (now.getHours() === 3 && now.getMinutes() === 0) {
-      try {
-        await createBackup();
-      } catch (error) {
-        monitor.recordError(error as Error);
-      }
+    try {
+      await createBackup();
+    } catch (error) {
+      console.error('Scheduled backup failed:', error);
+      monitor.recordError(error as Error);
     }
-  }, 60 * 1000); // Check every minute
+  }, BACKUP_INTERVAL);
 }
 
 async function startServer(): Promise<void> {
@@ -116,12 +60,35 @@ async function startServer(): Promise<void> {
   });
 }
 
+async function registerCommands(commands: any) {
+  const rest = new REST().setToken(process.env.DISCORD_TOKEN!);
+  
+  try {
+    console.log('Started refreshing application (/) commands.');
+    
+    const commandData = [...commands.values()].map(cmd => cmd.data.toJSON());
+    
+    await rest.put(
+      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
+      { body: commandData },
+    );
+
+    console.log('Successfully reloaded application (/) commands.');
+  } catch (error) {
+    console.error('Error registering commands:', error);
+    throw error;
+  }
+}
+
 // Main application startup
 async function main(): Promise<void> {
   try {
-    await initDB();
-    await initializeCommands();
-    await initializeEvents();
+    const commands = await initializeCommands();
+    client.commands = commands;
+    await initializeEvents(client);
+
+    // Register commands before login
+    await registerCommands(commands);
 
     client.once('ready', async () => {
       console.log('Bot is ready!');

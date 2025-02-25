@@ -5,7 +5,6 @@ import {
   getAllAuthorizedUsers,
 } from '../db/database';
 import { SpotifyService } from './streaming/SpotifyService';
-import { refreshAccessToken } from '../utils/spotifyUtils';
 import axios from 'axios';
 
 export class TrackingService {
@@ -57,17 +56,20 @@ export class TrackingService {
       const tokens = await getTokens(discordId);
       if (!tokens) return;
 
-      let {
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-      } = tokens;
+      let accessToken = tokens.accessToken;
+      const currentTime = Math.floor(Date.now() / 1000);
 
-      if (Date.now() >= expiresAt * 1000) {
-        const refreshed = await this.streamingService.refreshToken(refreshToken);
-        accessToken = refreshed.accessToken;
-        const newExpiresAt = Math.floor(Date.now() / 1000) + refreshed.expiresIn;
-        await updateAccessToken(discordId, accessToken, newExpiresAt);
+      if (tokens.expiresAt < currentTime) {
+        try {
+          const newTokenData = await this.streamingService.refreshToken(tokens.refreshToken);
+          accessToken = newTokenData.accessToken;
+          const newExpiresAt = currentTime + newTokenData.expiresIn;
+          await updateAccessToken(discordId, accessToken, newExpiresAt);
+        } catch (error) {
+          console.error(`[Tracking] Error refreshing token for user ${discordId}:`, error);
+          this.activeUsers.delete(discordId);
+          return;
+        }
       }
 
       const currentTrack = await this.streamingService.getCurrentTrack(accessToken);
@@ -91,25 +93,7 @@ export class TrackingService {
       }
     } catch (error: any) {
       if (error.message === 'TOKEN_REFRESH_NEEDED') {
-        try {
-          const tokens = await getTokens(discordId);
-          if (!tokens) {
-            this.activeUsers.delete(discordId);
-            return;
-          }
-          const newTokenData = await refreshAccessToken(tokens.refresh_token);
-          const currentTime = Math.floor(Date.now() / 1000);
-          await updateAccessToken(
-            discordId,
-            newTokenData.access_token,
-            currentTime + newTokenData.expires_in
-          );
-          // Skip this iteration, will retry on next interval
-          return;
-        } catch (refreshError) {
-          console.error(`[Tracking] Error refreshing token for user ${discordId}:`, refreshError);
-          this.activeUsers.delete(discordId);
-        }
+        console.log(`[Tracking] Token refresh needed for user ${discordId}`);
       } else {
         console.error(`[Tracking] Error tracking user ${discordId}:`, error);
       }
